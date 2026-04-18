@@ -8,7 +8,7 @@ import { CompaniesPage } from '@/features/admin/CompaniesPage';
 import { SitesPage } from '@/features/admin/SitesPage';
 import { CranesPage } from '@/features/admin/CranesPage';
 import { SiteUsersPage } from '@/features/admin/SiteUsersPage';
-import { CraneLogsPage } from '@/features/logs/CraneLogsPage';
+import CraneLogsPage from '@/features/logs/CraneLogsPage'
 import { SchedulePage } from '@/features/schedules/SchedulePage';
 
 export default function App() {
