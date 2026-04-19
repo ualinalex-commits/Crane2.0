@@ -39,15 +39,24 @@ function formatTimeShort(time: string): string {
   return time.slice(0, 5);
 }
 
-// ─── AUTO-SCROLL HOOK ────────────────────────────────────────────────────────
+// ─── AUTO-SCROLL CONTAINER ───────────────────────────────────────────────────
 
-function useAutoScroll(speed = 35) {
+function AutoScrollContainer({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 768);
 
   useEffect(() => {
+    const update = () => setIsDesktop(window.innerWidth >= 768);
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktop) return;
     const el = ref.current;
     if (!el) return;
 
+    const speed = 35;
     let rafId: number;
     let lastTs: number | undefined;
     let pauseUntil = 0;
@@ -73,20 +82,16 @@ function useAutoScroll(speed = 35) {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [speed]);
+  }, [isDesktop]);
 
-  return ref;
-}
-
-// ─── AUTO-SCROLL CONTAINER ───────────────────────────────────────────────────
-
-function AutoScrollContainer({ children }: { children: React.ReactNode }) {
-  const ref = useAutoScroll(35);
   return (
     <div
       ref={ref}
-      className="h-full overflow-hidden"
-      style={{ scrollbarWidth: 'none' }}
+      className="h-full"
+      style={{
+        overflowY: isDesktop ? 'hidden' : 'auto',
+        scrollbarWidth: 'none',
+      }}
     >
       {children}
     </div>

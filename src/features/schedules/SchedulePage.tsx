@@ -188,15 +188,17 @@ export function SchedulePage() {
   }, [loading, isToday]);
 
   // ── Derived data ──────────────────────────────────────────────────────────
-  const dayBookings = useMemo(() =>
-    bookings.filter(b => {
+  const dayBookings = useMemo(() => {
+    const dayStart = startOfDay(selectedDate);
+    const filtered = bookings.filter(b => {
       if (b.status === 'cancelled') return false;
-      const s = parseISO(b.job_date_start);
-      const e = parseISO(b.job_date_end);
-      return selectedDate >= startOfDay(s) && selectedDate <= startOfDay(e);
-    }),
-    [bookings, selectedDate]
-  );
+      const s = startOfDay(parseISO(b.job_date_start));
+      const e = startOfDay(parseISO(b.job_date_end));
+      return dayStart >= s && dayStart <= e;
+    });
+    console.log('[SchedulePage] bookings fetched:', bookings.length, '| visible for', format(selectedDate, 'yyyy-MM-dd'), ':', filtered.length, filtered);
+    return filtered;
+  }, [bookings, selectedDate]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const checkOverlaps = (craneId: string, dStart: string, dEnd: string, tS: string, tE: string) => {
