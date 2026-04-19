@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Crane, CraneBooking, Subcontractor, BookingStatus } from '@/types';
@@ -7,115 +7,242 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Calendar, Plus, CheckCircle2, XCircle, Clock,
-  AlertCircle, ChevronLeft, ChevronRight,
+  Plus, CheckCircle2, XCircle, Clock,
+  AlertCircle, ChevronLeft, ChevronRight, User, Building2, X, FileText,
+  Construction,
 } from 'lucide-react';
-import {
-  format, addDays, startOfWeek, endOfWeek, eachDayOfInterval,
-  isSameDay, parseISO, startOfDay,
-} from 'date-fns';
+import { format, addDays, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-const statusBadge: Record<BookingStatus, 'pending' | 'approved' | 'cancelled'> = {
-  pending: 'pending', approved: 'approved', cancelled: 'cancelled',
+// ── Layout constants ──────────────────────────────────────────────────────────
+const HOUR_START = 6;
+const HOUR_END = 22;
+const SLOT_H = 60;                               // px per 30-min slot
+const TOTAL_SLOTS = (HOUR_END - HOUR_START) * 2; // 32 half-hour slots
+const TOTAL_H = TOTAL_SLOTS * SLOT_H;            // 1920px total height
+const TIME_W = 64;                               // px – fixed left column
+const COL_W = 200;                               // px – each crane column
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function toMins(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+function fromMins(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function bookingTop(startTime: string): number {
+  return ((toMins(startTime) - HOUR_START * 60) / 30) * SLOT_H;
+}
+
+function bookingHeight(startTime: string, endTime: string): number {
+  return ((toMins(endTime) - toMins(startTime)) / 30) * SLOT_H;
+}
+
+function currentTimeTop(): number {
+  const now = new Date();
+  return ((now.getHours() * 60 + now.getMinutes() - HOUR_START * 60) / 30) * SLOT_H;
+}
+
+// Half-hour slot labels
+const SLOT_LABELS = Array.from({ length: TOTAL_SLOTS }, (_, i) =>
+  fromMins(HOUR_START * 60 + i * 30)
+);
+
+// Colour palette per booking status
+const STATUS_COLOR: Record<BookingStatus, { bg: string; border: string; text: string; left: string; dot: string }> = {
+  approved: { bg: '#f0fdf4', border: '#86efac', text: '#14532d', left: '#22c55e', dot: '#22c55e' },
+  pending:  { bg: '#fffbeb', border: '#fcd34d', text: '#78350f', left: '#f59e0b', dot: '#f59e0b' },
+  cancelled: { bg: '#fef2f2', border: '#fca5a5', text: '#7f1d1d', left: '#ef4444', dot: '#ef4444' },
 };
 
+// ── Overlap layout ────────────────────────────────────────────────────────────
+type LayoutItem = { b: CraneBooking; col: number; cols: number };
+
+function layoutBookings(bks: CraneBooking[]): LayoutItem[] {
+  const sorted = [...bks].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const items: LayoutItem[] = [];
+  const columns: CraneBooking[][] = [];
+
+  for (const b of sorted) {
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      if (!columns[c].some(o => b.start_time < o.end_time && b.end_time > o.start_time)) {
+        columns[c].push(b);
+        items.push({ b, col: c, cols: 0 });
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      columns.push([b]);
+      items.push({ b, col: columns.length - 1, cols: 0 });
+    }
+  }
+
+  for (const item of items) {
+    const overlapping = items.filter(
+      o => item.b.start_time < o.b.end_time && item.b.end_time > o.b.start_time
+    );
+    item.cols = Math.max(...overlapping.map(o => o.col)) + 1;
+  }
+
+  return items;
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export function SchedulePage() {
   const { profile } = useAuth();
   const [cranes, setCranes] = useState<Crane[]>([]);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [bookings, setBookings] = useState<CraneBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // New booking form state
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedCrane, setSelectedCrane] = useState('');
-  const [jobDetails, setJobDetails] = useState('');
-  const [dateStart, setDateStart] = useState('');
-  const [dateEnd, setDateEnd] = useState('');
-  const [startTime, setStartTime] = useState('08:00');
-  const [endTime, setEndTime] = useState('17:00');
-  const [selectedSub, setSelectedSub] = useState('');
+  const [formCrane, setFormCrane] = useState('');
+  const [formJob, setFormJob] = useState('');
+  const [formDateStart, setFormDateStart] = useState('');
+  const [formDateEnd, setFormDateEnd] = useState('');
+  const [formTimeStart, setFormTimeStart] = useState('08:00');
+  const [formTimeEnd, setFormTimeEnd] = useState('17:00');
+  const [formSub, setFormSub] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [warning, setWarning] = useState('');
-  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [viewMode, setViewMode] = useState<'daily' | 'weekly'>('weekly');
-  const [selectedDay, setSelectedDay] = useState(new Date());
+  const [formError, setFormError] = useState('');
 
-  const isSubcontractor = profile?.role === 'subcontractor';
+  // Detail overlay
+  const [overlayBooking, setOverlayBooking] = useState<CraneBooking | null>(null);
+
+  // Current time line
+  const [timeTop, setTimeTop] = useState(currentTimeTop());
+
+  // Calendar scroll container height (fills viewport below the nav bar)
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollH, setScrollH] = useState(500);
+
   const isAP = profile?.role === 'appointed_person';
-  const canBook = isSubcontractor || isAP;
-
+  const isSub = profile?.role === 'subcontractor';
+  const canBook = isAP || isSub;
+  const isToday = isSameDay(selectedDate, new Date());
   const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
 
+  // ── Data ──────────────────────────────────────────────────────────────────
   const fetchData = async () => {
     if (!profile?.site_id) { setLoading(false); return; }
     const [cranesRes, subsRes, bookingsRes] = await Promise.all([
       supabase.from('cranes').select('*').eq('site_id', profile.site_id).order('name'),
       supabase.from('subcontractors').select('*').eq('site_id', profile.site_id).order('company_name'),
-      supabase.from('crane_bookings').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', profile.site_id).neq('status', 'cancelled').order('job_date_start'),
+      supabase.from('crane_bookings')
+        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles(*)')
+        .eq('site_id', profile.site_id)
+        .order('job_date_start'),
     ]);
     setCranes(cranesRes.data || []);
     setSubcontractors(subsRes.data || []);
-    setBookings(bookingsRes.data as any || []);
+    setBookings((bookingsRes.data as any) || []);
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, [profile]);
 
-  const checkOverlaps = (craneId: string, dStart: string, dEnd: string, tStart: string, tEnd: string) => {
-    const conflicting = bookings.filter(b =>
+  // ── Effects ───────────────────────────────────────────────────────────────
+  useLayoutEffect(() => {
+    const update = () => {
+      if (!scrollRef.current) return;
+      const rect = scrollRef.current.getBoundingClientRect();
+      const bottomNav = window.innerWidth < 1024 ? 72 : 0;
+      setScrollH(Math.max(300, window.innerHeight - rect.top - bottomNav));
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [loading]);
+
+  // Update red time line every minute
+  useEffect(() => {
+    const id = setInterval(() => setTimeTop(currentTimeTop()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-scroll to current time when viewing today
+  useEffect(() => {
+    if (!scrollRef.current || !isToday) return;
+    const t = setTimeout(() => {
+      if (scrollRef.current)
+        scrollRef.current.scrollTop = Math.max(0, currentTimeTop() - 120);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [loading, isToday]);
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const dayBookings = useMemo(() =>
+    bookings.filter(b => {
+      if (b.status === 'cancelled') return false;
+      const s = parseISO(b.job_date_start);
+      const e = parseISO(b.job_date_end);
+      return selectedDate >= startOfDay(s) && selectedDate <= startOfDay(e);
+    }),
+    [bookings, selectedDate]
+  );
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const checkOverlaps = (craneId: string, dStart: string, dEnd: string, tS: string, tE: string) => {
+    const hits = bookings.filter(b =>
       b.crane_id === craneId &&
       b.job_date_start <= dEnd && b.job_date_end >= dStart &&
-      b.start_time < tEnd && b.end_time > tStart
+      b.start_time < tE && b.end_time > tS
     );
-    return {
-      approved: conflicting.filter(b => b.status === 'approved'),
-      pending: conflicting.filter(b => b.status === 'pending'),
-    };
+    return { approved: hits.filter(b => b.status === 'approved') };
   };
 
   const handleSubmit = async () => {
-    if (!profile?.site_id || !profile?.user_id) { setError('Profile is missing site assignment'); return; }
-    if (!selectedCrane) { setError('Please select a crane'); return; }
-    if (!jobDetails.trim()) { setError('Job details are required'); return; }
-    if (!dateStart) { setError('Start date is required'); return; }
-    if (!startTime || !endTime) { setError('Start and end time are required'); return; }
+    if (!profile?.site_id || !profile?.user_id) { setFormError('Profile is missing site assignment'); return; }
+    if (!formCrane) { setFormError('Please select a crane'); return; }
+    if (!formJob.trim()) { setFormError('Job details are required'); return; }
+    if (!formDateStart || !formTimeStart || !formTimeEnd) { setFormError('Date and times are required'); return; }
 
-    setError(''); setWarning(''); setSubmitting(true);
+    setFormError(''); setSubmitting(true);
+    const dEnd = formDateEnd || formDateStart;
+    const days = Math.ceil((new Date(dEnd).getTime() - new Date(formDateStart).getTime()) / 86_400_000) + 1;
+    if (days > 7) { setFormError('Maximum 7 consecutive days allowed.'); setSubmitting(false); return; }
 
-    const dEnd = dateEnd || dateStart;
-    const daysDiff = Math.ceil((new Date(dEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
-    if (daysDiff > 7) { setError('Maximum 7 consecutive days allowed.'); setSubmitting(false); return; }
-
-    const { approved } = checkOverlaps(selectedCrane, dateStart, dEnd, startTime, endTime);
+    const { approved } = checkOverlaps(formCrane, formDateStart, dEnd, formTimeStart, formTimeEnd);
     if (approved.length > 0) {
-      setError('Time slot overlaps with an approved booking. Choose a different time.');
+      setFormError('Time slot overlaps with an approved booking. Choose a different time.');
       setSubmitting(false);
       return;
     }
 
-    const subId = isSubcontractor
-      ? subcontractors.find(s => s.contact_email === profile.email)?.id || null
-      : selectedSub || null;
+    const subId = isSub
+      ? subcontractors.find(s => s.contact_email === profile.email)?.id ?? null
+      : formSub || null;
 
-    const bookingStatus = isAP ? 'approved' : 'pending';
-
-    const { error: insertErr } = await supabase.from('crane_bookings').insert({
-      crane_id: selectedCrane, site_id: profile.site_id, created_by: profile.user_id,
-      job_details: jobDetails, job_date_start: dateStart, job_date_end: dEnd,
-      start_time: startTime, end_time: endTime, subcontractor_id: subId,
-      status: bookingStatus, approved_by: isAP ? profile.user_id : null,
+    const { error: err } = await supabase.from('crane_bookings').insert({
+      crane_id: formCrane, site_id: profile.site_id, created_by: profile.user_id,
+      job_details: formJob, job_date_start: formDateStart, job_date_end: dEnd,
+      start_time: formTimeStart, end_time: formTimeEnd, subcontractor_id: subId,
+      status: isAP ? 'approved' : 'pending',
+      approved_by: isAP ? profile.user_id : null,
     });
 
-    if (insertErr) { setError(insertErr.message); setSubmitting(false); return; }
-    setDialogOpen(false); resetForm(); setSubmitting(false); fetchData();
+    if (err) { setFormError(err.message); setSubmitting(false); return; }
+    setDialogOpen(false);
+    resetForm();
+    setSubmitting(false);
+    fetchData();
   };
 
   const handleApprove = async (id: string) => {
@@ -123,374 +250,578 @@ export function SchedulePage() {
     await supabase.from('crane_bookings').update({
       status: 'approved', approved_by: profile.user_id, updated_at: new Date().toISOString(),
     }).eq('id', id);
+    setOverlayBooking(null);
     fetchData();
   };
 
-  const handleCancel = async (booking: CraneBooking) => {
+  const handleCancel = async (b: CraneBooking) => {
     if (!profile?.user_id) return;
     await supabase.from('cancellation_log').insert({
-      booking_id: booking.id, crane_id: booking.crane_id,
-      cancelled_by: profile.user_id, booking_details: booking as any,
+      booking_id: b.id, crane_id: b.crane_id,
+      cancelled_by: profile.user_id, booking_details: b as any,
     });
     await supabase.from('crane_bookings').update({
       status: 'cancelled', updated_at: new Date().toISOString(),
-    }).eq('id', booking.id);
+    }).eq('id', b.id);
+    setOverlayBooking(null);
     fetchData();
   };
 
   const resetForm = () => {
-    setSelectedCrane(''); setJobDetails(''); setDateStart(''); setDateEnd('');
-    setStartTime('08:00'); setEndTime('17:00'); setSelectedSub(''); setError(''); setWarning('');
+    setFormCrane(''); setFormJob(''); setFormDateStart(''); setFormDateEnd('');
+    setFormTimeStart('08:00'); setFormTimeEnd('17:00'); setFormSub(''); setFormError('');
   };
 
-  const weekDays = eachDayOfInterval({
-    start: currentWeekStart,
-    end: endOfWeek(currentWeekStart, { weekStartsOn: 1 }),
-  });
+  const openNewBooking = (craneId?: string, slotTime?: string) => {
+    resetForm();
+    setFormDateStart(format(selectedDate, 'yyyy-MM-dd'));
+    if (craneId) setFormCrane(craneId);
+    if (slotTime) {
+      setFormTimeStart(slotTime);
+      const endMins = Math.min(toMins(slotTime) + 60, HOUR_END * 60);
+      setFormTimeEnd(fromMins(endMins));
+    }
+    setDialogOpen(true);
+  };
 
-  const pendingBookings = bookings.filter(b => b.status === 'pending');
-  const approvedBookings = bookings.filter(b => b.status === 'approved');
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
 
-  if (loading) return (
-    <div className="flex justify-center py-12">
-      <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-    </div>
-  );
+  const gridMinW = TIME_W + cranes.length * COL_W;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Page header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Schedule</h1>
-          <p className="text-sm text-muted-foreground mt-1">Crane booking calendar</p>
+    // Break out of the main padding so the calendar fills edge-to-edge
+    <div className="flex flex-col -mx-4 -mt-4 -mb-24 lg:-mx-6 lg:-mt-6 lg:-mb-6 animate-fade-in">
+
+      {/* ── Date navigation bar ─────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background flex-wrap">
+        <Button
+          variant="ghost" size="sm"
+          className="h-8 w-8 p-0 shrink-0"
+          onClick={() => setSelectedDate(d => addDays(d, -1))}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+
+        <div className="flex-1 text-center min-w-0">
+          <p className={cn('text-sm font-semibold truncate', isToday && 'text-primary')}>
+            {format(selectedDate, 'EEEE, d MMMM yyyy')}
+          </p>
         </div>
+
+        <Button
+          variant="ghost" size="sm"
+          className="h-8 w-8 p-0 shrink-0"
+          onClick={() => setSelectedDate(d => addDays(d, 1))}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+
+        {!isToday && (
+          <Button
+            variant="outline" size="sm"
+            className="h-7 text-xs px-2.5 shrink-0"
+            onClick={() => setSelectedDate(new Date())}
+          >
+            Today
+          </Button>
+        )}
+
         {canBook && (
-          <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1" />New Booking
+          <Button
+            size="sm"
+            className="h-7 text-xs px-3 shrink-0"
+            onClick={() => openNewBooking()}
+          >
+            <Plus className="h-3 w-3 mr-1" />New
           </Button>
         )}
       </div>
 
-      {/* Booking Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* ── Calendar scroll container ────────────────────────────────────────── */}
+      <div
+        ref={scrollRef}
+        className="overflow-auto"
+        style={{ height: scrollH }}
+      >
+        {/* Wide inner grid – wider than viewport when many cranes */}
+        <div style={{ minWidth: gridMinW }}>
+
+          {/* Crane header row – sticky top */}
+          <div
+            className="sticky top-0 z-20 flex bg-card border-b border-border shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+            style={{ minWidth: gridMinW }}
+          >
+            {/* Corner */}
+            <div
+              className="shrink-0 border-r border-border bg-card"
+              style={{ width: TIME_W }}
+            />
+            {/* One header per crane */}
+            {cranes.map(crane => {
+              const todayBks = dayBookings.filter(b => b.crane_id === crane.id);
+              const dotColor = todayBks.some(b => b.status === 'approved')
+                ? '#22c55e'
+                : todayBks.some(b => b.status === 'pending')
+                  ? '#f59e0b'
+                  : '#d1d5db';
+              return (
+                <div
+                  key={crane.id}
+                  className="shrink-0 border-r border-border px-2.5 py-2"
+                  style={{ width: COL_W }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: dotColor }}
+                    />
+                    <span className="text-xs font-semibold text-foreground truncate leading-tight">
+                      {crane.name}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground truncate mt-0.5 pl-3.5">
+                    {crane.model || crane.capacity || ''}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Timeline body */}
+          <div className="relative flex" style={{ height: TOTAL_H }}>
+
+            {/* Time column – sticky left */}
+            <div
+              className="sticky left-0 z-10 shrink-0 bg-background border-r border-border"
+              style={{ width: TIME_W }}
+            >
+              {SLOT_LABELS.map((label, i) => (
+                <div
+                  key={label}
+                  className="absolute inset-x-0 flex items-start justify-end pr-2"
+                  style={{ top: i * SLOT_H, height: SLOT_H }}
+                >
+                  {i % 2 === 0 && (
+                    <span className="text-[10px] text-muted-foreground tabular-nums leading-none select-none -mt-1.5">
+                      {label}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* One column per crane */}
+            {cranes.map(crane => {
+              const craneBks = dayBookings.filter(b => b.crane_id === crane.id);
+              const laid = layoutBookings(craneBks);
+
+              return (
+                <div
+                  key={crane.id}
+                  className="relative shrink-0 border-r border-border bg-card"
+                  style={{ width: COL_W }}
+                >
+                  {/* Grid lines + click zones */}
+                  {SLOT_LABELS.map((label, i) => (
+                    <div
+                      key={label}
+                      className={cn(
+                        'absolute inset-x-0 border-b',
+                        canBook && 'cursor-pointer hover:bg-primary/[0.04] transition-colors',
+                        i % 2 === 0 ? 'border-border/40' : 'border-border/15',
+                      )}
+                      style={{ top: i * SLOT_H, height: SLOT_H }}
+                      onClick={() => canBook && openNewBooking(crane.id, label)}
+                    />
+                  ))}
+
+                  {/* Booking blocks */}
+                  {laid.map(({ b, col, cols }) => {
+                    const top = bookingTop(b.start_time);
+                    const height = Math.max(22, bookingHeight(b.start_time, b.end_time));
+                    const c = STATUS_COLOR[b.status as BookingStatus] ?? STATUS_COLOR.pending;
+                    const bw = (COL_W - 2) / cols;
+                    const compact = height < 38;
+
+                    return (
+                      <div
+                        key={b.id}
+                        className="absolute rounded-lg overflow-hidden cursor-pointer z-10 hover:shadow-md hover:z-20 transition-all duration-150"
+                        style={{
+                          top: top + 2,
+                          height: height - 4,
+                          left: col * bw + 2,
+                          width: bw - 4,
+                          backgroundColor: c.bg,
+                          border: `1px solid ${c.border}`,
+                        }}
+                        onClick={e => { e.stopPropagation(); setOverlayBooking(b); }}
+                      >
+                        {/* Coloured left stripe */}
+                        <div
+                          className="absolute inset-y-0 left-0 w-1 rounded-l-lg"
+                          style={{ backgroundColor: c.left }}
+                        />
+                        <div className="h-full flex flex-col pl-2.5 pr-1 py-1 overflow-hidden gap-0.5">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: c.dot }}
+                            />
+                            <span
+                              className="text-[10px] font-semibold truncate leading-tight"
+                              style={{ color: c.text }}
+                            >
+                              {(b.subcontractor as any)?.company_name
+                                || (b.creator as any)?.full_name
+                                || '—'}
+                            </span>
+                          </div>
+                          {!compact && (
+                            <span
+                              className="text-[9px] tabular-nums leading-none pl-2.5"
+                              style={{ color: c.text, opacity: 0.7 }}
+                            >
+                              {b.start_time.slice(0, 5)}–{b.end_time.slice(0, 5)}
+                            </span>
+                          )}
+                          {height >= 56 && (
+                            <span
+                              className="text-[9px] leading-tight pl-2.5 line-clamp-2"
+                              style={{ color: c.text, opacity: 0.55 }}
+                            >
+                              {b.job_details}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {/* Current time indicator – today only */}
+            {isToday && timeTop >= 0 && timeTop <= TOTAL_H && (
+              <div
+                className="absolute z-30 pointer-events-none flex items-center"
+                style={{ top: timeTop, left: TIME_W, right: 0 }}
+              >
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 -ml-1.5 shadow-sm shadow-red-500/40" />
+                <div className="flex-1 border-t-2 border-red-500" />
+              </div>
+            )}
+
+            {/* Empty state – no cranes */}
+            {cranes.length === 0 && (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20 text-center px-6">
+                <Construction className="h-12 w-12 text-muted-foreground/30" />
+                <p className="text-sm font-medium text-muted-foreground">No cranes on this site</p>
+                <p className="text-xs text-muted-foreground/70">Ask your appointed person to add cranes.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── New Booking Dialog ───────────────────────────────────────────────── */}
+      <Dialog open={dialogOpen} onOpenChange={open => { if (!open) resetForm(); setDialogOpen(open); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>New Crane Booking</DialogTitle>
             <DialogDescription>Book a crane for your job.</DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4 mt-1">
-            {error && (
+            {formError && (
               <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
-                <AlertCircle className="h-4 w-4 shrink-0" />{error}
-              </div>
-            )}
-            {warning && (
-              <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-amber-50 border border-amber-100 text-amber-700 text-sm">
-                <AlertCircle className="h-4 w-4 shrink-0" />{warning}
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {formError}
               </div>
             )}
 
             <div className="space-y-1.5">
               <Label>Crane</Label>
-              <Select value={selectedCrane} onValueChange={setSelectedCrane}>
+              <Select value={formCrane} onValueChange={setFormCrane}>
                 <SelectTrigger><SelectValue placeholder="Select crane" /></SelectTrigger>
                 <SelectContent>
-                  {cranes.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  {cranes.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             {isAP && (
               <div className="space-y-1.5">
-                <Label>Subcontractor</Label>
-                <Select value={selectedSub} onValueChange={setSelectedSub}>
+                <Label>Subcontractor <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Select value={formSub} onValueChange={setFormSub}>
                   <SelectTrigger><SelectValue placeholder="Select subcontractor" /></SelectTrigger>
                   <SelectContent>
-                    {subcontractors.map(s => <SelectItem key={s.id} value={s.id}>{s.company_name}</SelectItem>)}
+                    {subcontractors.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.company_name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
 
             <div className="space-y-1.5">
-              <Label>Job Details</Label>
+              <Label>Job / Lift Details</Label>
               <Textarea
-                value={jobDetails}
-                onChange={e => setJobDetails(e.target.value)}
-                placeholder="Describe the job..."
+                value={formJob}
+                onChange={e => setFormJob(e.target.value)}
+                placeholder="Describe the job or lift…"
                 rows={2}
-                className="rounded-xl border-border resize-none"
+                className="rounded-xl resize-none"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Start Date</Label>
-                <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} min={tomorrow} />
+                <Input
+                  type="date"
+                  value={formDateStart}
+                  onChange={e => setFormDateStart(e.target.value)}
+                  min={tomorrow}
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>End Date</Label>
-                <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} min={dateStart || tomorrow} />
+                <Label>End Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Input
+                  type="date"
+                  value={formDateEnd}
+                  onChange={e => setFormDateEnd(e.target.value)}
+                  min={formDateStart || tomorrow}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Start Time</Label>
-                <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+                <Input type="time" value={formTimeStart} onChange={e => setFormTimeStart(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <Label>End Time</Label>
-                <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                <Input type="time" value={formTimeEnd} onChange={e => setFormTimeEnd(e.target.value)} />
               </div>
             </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button disabled={submitting} onClick={handleSubmit}>
-                {submitting ? 'Booking...' : 'Submit Booking'}
-              </Button>
-            </DialogFooter>
           </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button disabled={submitting} onClick={handleSubmit}>
+              {submitting ? 'Booking…' : 'Submit Booking'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Views */}
-      {isAP ? (
-        <Tabs defaultValue="calendar">
-          <TabsList>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="pending">
-              Pending
-              {pendingBookings.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold">
-                  {pendingBookings.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="all">All Bookings</TabsTrigger>
-          </TabsList>
-          <TabsContent value="calendar">
-            <WeeklyView weekDays={weekDays} bookings={bookings} currentWeekStart={currentWeekStart} setCurrentWeekStart={setCurrentWeekStart} cranes={cranes} showDetails />
-          </TabsContent>
-          <TabsContent value="pending">
-            <BookingsList bookings={pendingBookings} onApprove={handleApprove} onCancel={handleCancel} showActions />
-          </TabsContent>
-          <TabsContent value="all">
-            <BookingsList bookings={bookings} onCancel={handleCancel} showActions={false} />
-          </TabsContent>
-        </Tabs>
-      ) : isSubcontractor ? (
-        <Tabs defaultValue="calendar">
-          <TabsList>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="my">My Bookings</TabsTrigger>
-          </TabsList>
-          <TabsContent value="calendar">
-            <WeeklyView weekDays={weekDays} bookings={bookings} currentWeekStart={currentWeekStart} setCurrentWeekStart={setCurrentWeekStart} cranes={cranes} showDetails={false} />
-          </TabsContent>
-          <TabsContent value="my">
-            <BookingsList bookings={bookings.filter(b => b.created_by === profile?.user_id)} onCancel={handleCancel} showActions canCancel />
-          </TabsContent>
-        </Tabs>
-      ) : (
-        <div>
-          <div className="flex items-center gap-2 mb-4">
-            <Button
-              variant={viewMode === 'weekly' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('weekly')}
-            >Weekly</Button>
-            <Button
-              variant={viewMode === 'daily' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('daily')}
-            >Daily</Button>
-          </div>
-          {viewMode === 'weekly' ? (
-            <WeeklyView weekDays={weekDays} bookings={approvedBookings} currentWeekStart={currentWeekStart} setCurrentWeekStart={setCurrentWeekStart} cranes={cranes} showDetails />
-          ) : (
-            <DailyView day={selectedDay} setDay={setSelectedDay} bookings={approvedBookings} cranes={cranes} />
-          )}
-        </div>
+      {/* ── Booking Detail Overlay ───────────────────────────────────────────── */}
+      {overlayBooking && (
+        <BookingOverlay
+          booking={overlayBooking}
+          isAP={isAP}
+          isSub={isSub}
+          userId={profile?.user_id}
+          onClose={() => setOverlayBooking(null)}
+          onApprove={() => handleApprove(overlayBooking.id)}
+          onCancel={() => handleCancel(overlayBooking)}
+        />
       )}
     </div>
   );
 }
 
-// ─── WEEKLY VIEW ─────────────────────────────────────────────────────────────
-function WeeklyView({ weekDays, bookings, currentWeekStart, setCurrentWeekStart, cranes, showDetails }: any) {
-  return (
-    <div className="space-y-4 mt-2">
-      {/* Week nav */}
-      <div className="flex items-center justify-between bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-4 py-3">
-        <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(addDays(currentWeekStart, -7))}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-sm font-semibold text-foreground">
-          {format(currentWeekStart, 'dd MMM')} – {format(addDays(currentWeekStart, 6), 'dd MMM yyyy')}
-        </span>
-        <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(addDays(currentWeekStart, 7))}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+// ── Booking Detail Overlay ────────────────────────────────────────────────────
+function BookingOverlay({
+  booking: b, isAP, isSub, userId, onClose, onApprove, onCancel,
+}: {
+  booking: CraneBooking;
+  isAP: boolean;
+  isSub: boolean;
+  userId?: string;
+  onClose: () => void;
+  onApprove: () => void;
+  onCancel: () => void;
+}) {
+  const crane   = b.crane        as any;
+  const sub     = b.subcontractor as any;
+  const creator = b.creator       as any;
+  const status  = b.status        as BookingStatus;
+  const c       = STATUS_COLOR[status] ?? STATUS_COLOR.pending;
 
-      {/* Days grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-        {weekDays.map((day: Date) => {
-          const dayBookings = bookings.filter((b: CraneBooking) => {
-            const s = parseISO(b.job_date_start);
-            const e = parseISO(b.job_date_end);
-            return day >= startOfDay(s) && day <= startOfDay(e);
-          });
-          const isToday = isSameDay(day, new Date());
-          return (
-            <div
-              key={day.toISOString()}
-              className={cn(
-                'rounded-2xl p-3 min-h-[110px] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-colors',
-                isToday
-                  ? 'bg-primary/8 ring-2 ring-primary/30'
-                  : 'bg-card'
-              )}
-            >
-              <p className={cn(
-                'text-xs font-bold mb-2',
-                isToday ? 'text-primary' : 'text-muted-foreground'
-              )}>
-                {format(day, 'EEE dd')}
-              </p>
-              <div className="space-y-1">
-                {dayBookings.map((b: CraneBooking) => (
-                  <div
-                    key={b.id}
-                    className={cn(
-                      'text-xs px-2 py-1.5 rounded-xl',
-                      b.status === 'approved'
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : 'bg-amber-50 text-amber-700'
-                    )}
-                  >
-                    <p className="font-semibold truncate">{(b.crane as any)?.name}</p>
-                    <p className="opacity-75 text-[10px] tabular-nums">
-                      {b.start_time.slice(0, 5)}–{b.end_time.slice(0, 5)}
-                    </p>
-                    {showDetails && (
-                      <p className="truncate opacity-60 text-[10px]">{(b.subcontractor as any)?.company_name}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+  const durationMins = toMins(b.end_time) - toMins(b.start_time);
+  const durationStr  = durationMins >= 60
+    ? `${Math.floor(durationMins / 60)}h${durationMins % 60 > 0 ? ` ${durationMins % 60}m` : ''}`
+    : `${durationMins}m`;
 
-// ─── DAILY VIEW ──────────────────────────────────────────────────────────────
-function DailyView({ day, setDay, bookings, cranes }: any) {
-  const dayBookings = bookings.filter((b: CraneBooking) => {
-    const s = parseISO(b.job_date_start);
-    const e = parseISO(b.job_date_end);
-    return day >= startOfDay(s) && day <= startOfDay(e);
-  });
+  const isOwnPending = isSub && b.created_by === userId && b.status === 'pending';
+
+  const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
-    <div className="space-y-4 mt-2">
-      <div className="flex items-center justify-between bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-4 py-3">
-        <Button variant="ghost" size="sm" onClick={() => setDay(addDays(day, -1))}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-sm font-semibold text-foreground">
-          {format(day, 'EEEE, dd MMMM yyyy')}
-        </span>
-        <Button variant="ghost" size="sm" onClick={() => setDay(addDays(day, 1))}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+      />
 
-      {dayBookings.length === 0 ? (
-        <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-10 text-center">
-          <Calendar className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">No bookings for this day</p>
+      {/* Panel */}
+      <div
+        className={cn(
+          'fixed z-50 bg-card',
+          // Mobile: bottom sheet slides up from bottom
+          'inset-x-0 bottom-0 rounded-t-3xl max-h-[88dvh] overflow-y-auto animate-slide-up',
+          // Desktop: centred modal fades in (slide-up conflicts with centering transforms)
+          'lg:inset-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2',
+          'lg:w-full lg:max-w-md lg:rounded-2xl lg:shadow-2xl lg:max-h-[85dvh] lg:overflow-y-auto',
+          'lg:[animation:fadeIn_0.2s_ease-out]',
+        )}
+      >
+        {/* Drag handle (mobile only) */}
+        <div className="lg:hidden flex justify-center pt-3 pb-0.5">
+          <div className="w-10 h-1 rounded-full bg-border" />
         </div>
-      ) : (
-        <div className="space-y-3">
-          {dayBookings.map((b: CraneBooking) => (
-            <div key={b.id} className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-4 flex items-center gap-4">
-              <div className="w-1.5 h-12 rounded-full bg-emerald-500 shrink-0" />
-              <div className="flex-1">
-                <p className="font-semibold text-foreground">{(b.crane as any)?.name}</p>
-                <p className="text-sm text-muted-foreground tabular-nums">
-                  {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">{b.job_details}</p>
-              </div>
-              <Badge variant="approved">Approved</Badge>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
-// ─── BOOKINGS LIST ────────────────────────────────────────────────────────────
-function BookingsList({ bookings, onApprove, onCancel, showActions, canCancel }: any) {
-  if (bookings.length === 0) {
-    return (
-      <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-10 text-center mt-2">
-        <Calendar className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-        <p className="text-sm text-muted-foreground">No bookings found</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3 mt-2">
-      {bookings.map((b: CraneBooking) => (
-        <div
-          key={b.id}
-          className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-4 hover:shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-shadow"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-foreground">{(b.crane as any)?.name}</span>
-                <Badge variant={statusBadge[b.status as BookingStatus]}>{b.status}</Badge>
-              </div>
-              <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{b.job_details}</p>
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {b.job_date_start}{b.job_date_end !== b.job_date_start ? ` → ${b.job_date_end}` : ''}
-                </span>
-                <span className="tabular-nums">{b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}</span>
-                {(b.subcontractor as any)?.company_name && (
-                  <span>{(b.subcontractor as any).company_name}</span>
-                )}
-              </div>
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-border">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-foreground text-base">{crane?.name || 'Crane'}</span>
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
+                style={{ backgroundColor: c.bg, color: c.text, border: `1px solid ${c.border}` }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full mr-1.5" style={{ backgroundColor: c.dot }} />
+                {statusLabel}
+              </span>
             </div>
-            {showActions && (
-              <div className="flex gap-2 shrink-0">
-                {onApprove && b.status === 'pending' && (
-                  <Button size="sm" variant="success" onClick={() => onApprove(b.id)}>
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />Approve
-                  </Button>
-                )}
-                {(canCancel || onApprove) && b.status !== 'cancelled' && (
-                  <Button size="sm" variant="destructive" onClick={() => onCancel(b)}>
-                    <XCircle className="h-3.5 w-3.5 mr-1" />Cancel
-                  </Button>
-                )}
-              </div>
+            {crane?.model && (
+              <p className="text-xs text-muted-foreground mt-0.5">{crane.model} · {crane.capacity}</p>
             )}
           </div>
+          <button
+            onClick={onClose}
+            className="ml-2 shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      ))}
+
+        {/* Detail fields */}
+        <div className="px-5 py-4 space-y-4">
+
+          {/* Date & time */}
+          <section className="space-y-3">
+            <DetailRow icon={<Clock className="h-4 w-4" />} label="Date">
+              {b.job_date_start === b.job_date_end
+                ? format(parseISO(b.job_date_start), 'd MMMM yyyy')
+                : `${format(parseISO(b.job_date_start), 'd MMM')} – ${format(parseISO(b.job_date_end), 'd MMM yyyy')}`
+              }
+            </DetailRow>
+            <DetailRow icon={<Clock className="h-4 w-4" />} label="Time">
+              <span>
+                {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
+              </span>
+              <span className="ml-2 inline-block text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground font-medium">
+                {durationStr}
+              </span>
+            </DetailRow>
+          </section>
+
+          <div className="border-t border-border" />
+
+          {/* People */}
+          <section className="space-y-3">
+            {sub && (
+              <DetailRow icon={<Building2 className="h-4 w-4" />} label="Subcontractor">
+                <p className="text-sm font-medium text-foreground">{sub.company_name}</p>
+                {sub.contact_name && (
+                  <p className="text-xs text-muted-foreground">{sub.contact_name}</p>
+                )}
+              </DetailRow>
+            )}
+            {creator && (
+              <DetailRow icon={<User className="h-4 w-4" />} label="Requested by">
+                <p className="text-sm font-medium text-foreground">{creator.full_name}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {String(creator.role ?? '').replace(/_/g, ' ')}
+                </p>
+              </DetailRow>
+            )}
+          </section>
+
+          <div className="border-t border-border" />
+
+          {/* Job details */}
+          <DetailRow icon={<FileText className="h-4 w-4" />} label="Job / Lift">
+            <p className="text-sm text-foreground leading-relaxed">{b.job_details}</p>
+          </DetailRow>
+
+          <div className="border-t border-border" />
+
+          {/* Created at */}
+          <DetailRow icon={<Clock className="h-4 w-4" />} label="Booking created">
+            <p className="text-sm text-muted-foreground">
+              {format(parseISO(b.created_at), 'd MMM yyyy, HH:mm')}
+            </p>
+          </DetailRow>
+        </div>
+
+        {/* Action buttons */}
+        <div className="px-5 pb-8 pt-1 flex gap-2 flex-wrap border-t border-border">
+          {isAP && b.status === 'pending' && (
+            <Button size="sm" variant="success" className="flex-1 min-w-[100px]" onClick={onApprove}>
+              <CheckCircle2 className="h-4 w-4 mr-1.5" />Approve
+            </Button>
+          )}
+          {isAP && b.status !== 'cancelled' && (
+            <Button size="sm" variant="destructive" className="flex-1 min-w-[100px]" onClick={onCancel}>
+              <XCircle className="h-4 w-4 mr-1.5" />Cancel
+            </Button>
+          )}
+          {isOwnPending && (
+            <Button size="sm" variant="destructive" className="flex-1 min-w-[100px]" onClick={onCancel}>
+              <XCircle className="h-4 w-4 mr-1.5" />Cancel Booking
+            </Button>
+          )}
+          <Button size="sm" variant="outline" className="flex-1 min-w-[80px]" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Small helper row for the overlay ─────────────────────────────────────────
+function DetailRow({
+  icon, label, children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3">
+      <div className="shrink-0 text-muted-foreground mt-0.5">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+          {label}
+        </p>
+        <div>{children}</div>
+      </div>
     </div>
   );
 }
