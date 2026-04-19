@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Crane, CraneLog, CraneBooking, CraneStatus } from '@/types';
-import { Clock, Construction, Activity, Calendar, AlertTriangle, Zap, RefreshCw } from 'lucide-react';
+import { Clock, Construction, Activity, Calendar, AlertTriangle, Zap, RefreshCw, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ─── STATUS HELPERS ──────────────────────────────────────────────────────────
@@ -471,32 +472,39 @@ export default function LiveDashboard() {
               {pendingBookings.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-6 px-3">No pending requests</p>
               ) : (
-                <AutoScrollContainer>
-                  {pendingBookings.map(booking => {
-                    const craneName = (booking.crane as any)?.name || '—';
-                    const subName = (booking.subcontractor as any)?.company_name || '—';
-                    const requestedBy = (booking.creator as any)?.full_name || '—';
-                    return (
-                      <div key={booking.id} className="px-3 py-2.5 border-b border-border last:border-0 bg-red-50/30">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold text-red-600 tabular-nums">
-                            {new Date(booking.job_date_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                            {' '}{formatTimeShort(booking.start_time)}–{formatTimeShort(booking.end_time)}
-                          </span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
-                            Pending
-                          </span>
-                        </div>
-                        <p className="text-[11px] font-semibold text-foreground mt-1">{craneName}</p>
-                        <p className="text-[11px] text-muted-foreground">{subName}</p>
-                        {booking.job_details && (
-                          <p className="text-[11px] text-foreground/70 mt-0.5 line-clamp-1">{booking.job_details}</p>
-                        )}
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Requested by {requestedBy}</p>
-                      </div>
-                    );
-                  })}
-                </AutoScrollContainer>
+                <div className="flex flex-col h-full">
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <AutoScrollContainer>
+                      {pendingBookings.map(booking => {
+                        const craneName = (booking.crane as any)?.name || '—';
+                        const subName = (booking.subcontractor as any)?.company_name || null;
+                        const requestedBy = (booking.creator as any)?.full_name || '—';
+                        return (
+                          <div key={booking.id} className="px-3 py-2.5 border-b border-border last:border-0 bg-amber-50/30">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-semibold text-amber-700 tabular-nums">
+                                {booking.job_date_start} · {formatTimeShort(booking.start_time)}–{formatTimeShort(booking.end_time)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-semibold text-foreground mt-0.5">{craneName}</p>
+                            {subName && <p className="text-[11px] text-muted-foreground">{subName}</p>}
+                            {booking.job_details && (
+                              <p className="text-[11px] text-foreground/70 mt-0.5 line-clamp-1">{booking.job_details}</p>
+                            )}
+                            <p className="text-[10px] text-muted-foreground mt-0.5">By {requestedBy}</p>
+                          </div>
+                        );
+                      })}
+                    </AutoScrollContainer>
+                  </div>
+                  <Link
+                    to="/bookings"
+                    className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 border-t border-border text-xs font-semibold text-primary hover:bg-muted transition-colors"
+                  >
+                    Review all requests
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
               )}
             </SectionCard>
           </div>

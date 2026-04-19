@@ -10,6 +10,7 @@ import { CranesPage } from '@/features/admin/CranesPage';
 import { SiteUsersPage } from '@/features/admin/SiteUsersPage';
 import CraneLogsPage from '@/features/logs/CraneLogsPage'
 import { SchedulePage } from '@/features/schedules/SchedulePage';
+import { BookingsPage } from '@/features/bookings/BookingsPage';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="site-users" element={<ProtectedRoute allowedRoles={['appointed_person']}><SiteUsersPage /></ProtectedRoute>} />
             <Route path="logs" element={<ProtectedRoute allowedRoles={['appointed_person', 'crane_supervisor', 'crane_operator']}><CraneLogsPage /></ProtectedRoute>} />
             <Route path="schedule" element={<ProtectedRoute allowedRoles={['appointed_person', 'crane_supervisor', 'crane_operator', 'slinger_signaller', 'subcontractor']}><SchedulePage /></ProtectedRoute>} />
+            <Route path="bookings" element={<ProtectedRoute allowedRoles={['appointed_person']}><BookingsPage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

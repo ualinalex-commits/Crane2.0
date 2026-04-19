@@ -19,7 +19,7 @@ import {
   AlertCircle, ChevronLeft, ChevronRight, User, Building2, X, FileText,
   Construction,
 } from 'lucide-react';
-import { format, addDays, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { format, addDays, isSameDay, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -146,10 +146,11 @@ export function SchedulePage() {
       supabase.from('cranes').select('*').eq('site_id', profile.site_id).order('name'),
       supabase.from('subcontractors').select('*').eq('site_id', profile.site_id).order('company_name'),
       supabase.from('crane_bookings')
-        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles(*)')
+        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles(full_name, role)')
         .eq('site_id', profile.site_id)
         .order('job_date_start'),
     ]);
+    console.log('[SchedulePage] raw bookings response:', bookingsRes.data, '| error:', bookingsRes.error);
     setCranes(cranesRes.data || []);
     setSubcontractors(subsRes.data || []);
     setBookings((bookingsRes.data as any) || []);
@@ -189,14 +190,12 @@ export function SchedulePage() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const dayBookings = useMemo(() => {
-    const dayStart = startOfDay(selectedDate);
+    const dayStr = format(selectedDate, 'yyyy-MM-dd');
     const filtered = bookings.filter(b => {
       if (b.status === 'cancelled') return false;
-      const s = startOfDay(parseISO(b.job_date_start));
-      const e = startOfDay(parseISO(b.job_date_end));
-      return dayStart >= s && dayStart <= e;
+      return b.job_date_start <= dayStr && b.job_date_end >= dayStr;
     });
-    console.log('[SchedulePage] bookings fetched:', bookings.length, '| visible for', format(selectedDate, 'yyyy-MM-dd'), ':', filtered.length, filtered);
+    console.log('[SchedulePage] total bookings:', bookings.length, '| visible for', dayStr, ':', filtered.length, filtered);
     return filtered;
   }, [bookings, selectedDate]);
 
