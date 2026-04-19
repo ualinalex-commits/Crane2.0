@@ -80,6 +80,7 @@ export function DailyBriefingPage() {
   }
 
   const canSetUp = profile?.role === 'appointed_person' || profile?.role === 'crane_supervisor' || profile?.role === 'admin';
+  const canSign = ['crane_supervisor', 'crane_operator', 'slinger_signaller', 'subcontractor'].includes(profile?.role || '');
   const hasSigned = signatures.some(s => s.user_id === profile?.user_id);
 
   return (
@@ -93,12 +94,7 @@ export function DailyBriefingPage() {
         </div>
         
         <div className="flex items-center gap-3">
-          {canSetUp ? (
-            <Button onClick={() => setIsSetUpModalOpen(true)} className="gap-2">
-              <FileText className="h-4 w-4" />
-              {briefing ? 'Edit Briefing' : 'Set Up Briefing'}
-            </Button>
-          ) : briefing ? (
+          {canSign && briefing && (
             hasSigned ? (
               <Button disabled variant="outline" className="gap-2 text-green-600 border-green-200 bg-green-50">
                 <CheckCircle2 className="h-4 w-4" />
@@ -110,7 +106,13 @@ export function DailyBriefingPage() {
                 Sign Briefing
               </Button>
             )
-          ) : null}
+          )}
+          {canSetUp && (
+            <Button onClick={() => setIsSetUpModalOpen(true)} className="gap-2" variant={canSign && briefing && !hasSigned ? "outline" : "default"}>
+              <FileText className="h-4 w-4" />
+              {briefing ? 'Edit Briefing' : 'Set Up Briefing'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -277,7 +279,7 @@ export function DailyBriefingPage() {
             </section>
 
             {/* Bottom Signature Action for Operatives */}
-            {!canSetUp && !hasSigned && (
+            {canSign && !hasSigned && (
               <div className="pt-8 flex justify-center">
                 <Button size="lg" onClick={() => setIsSignModalOpen(true)} className="gap-2 px-8">
                   <FileSignature className="h-5 w-5" />
@@ -286,7 +288,7 @@ export function DailyBriefingPage() {
               </div>
             )}
             
-            {!canSetUp && hasSigned && (
+            {canSign && hasSigned && (
               <div className="pt-8 flex justify-center">
                 <Button disabled variant="outline" size="lg" className="gap-2 px-8 text-green-600 border-green-200 bg-green-50">
                   <CheckCircle2 className="h-5 w-5" />
