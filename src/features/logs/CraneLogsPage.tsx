@@ -28,6 +28,7 @@ const statusColors: Record<CraneStatus, string> = {
   'Thorough Examination': 'bg-purple-500/20 text-purple-400',
   'Breaking Down': 'bg-red-500/20 text-red-400',
   'Winded Off': 'bg-amber-500/20 text-amber-400',
+  'Idle': 'bg-gray-500/20 text-gray-400',
 };
 
 export default function CraneLogsPage() {
