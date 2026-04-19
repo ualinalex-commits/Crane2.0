@@ -5,13 +5,12 @@ import type { Profile, Subcontractor, UserRole } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle
+  DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Users, Plus, Pencil, Trash2, UserCircle, Building2, AlertCircle } from 'lucide-react';
 
@@ -31,6 +30,14 @@ const roleLabels: Record<string, string> = {
   admin: 'Admin',
 };
 
+const roleBadgeColor: Record<string, string> = {
+  crane_supervisor: 'bg-blue-50 text-blue-700',
+  crane_operator:   'bg-orange-50 text-orange-700',
+  slinger_signaller:'bg-purple-50 text-purple-700',
+  subcontractor:    'bg-emerald-50 text-emerald-700',
+  appointed_person: 'bg-primary/10 text-primary',
+};
+
 export function SiteUsersPage() {
   const { profile } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
@@ -38,7 +45,6 @@ export function SiteUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // User dialog
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [userEmail, setUserEmail] = useState('');
@@ -46,7 +52,6 @@ export function SiteUsersPage() {
   const [userRole, setUserRole] = useState<UserRole>('crane_operator');
   const [userPassword, setUserPassword] = useState('');
 
-  // Subcontractor dialog
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subcontractor | null>(null);
   const [subCompanyName, setSubCompanyName] = useState('');
@@ -104,7 +109,6 @@ export function SiteUsersPage() {
         if (!supabaseAdmin) {
           throw new Error('Admin client not configured. Add VITE_SUPABASE_SERVICE_ROLE_KEY to .env');
         }
-
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
           email: userEmail,
           password: userPassword,
@@ -214,6 +218,13 @@ export function SiteUsersPage() {
     }
   };
 
+  const ErrorBanner = ({ msg }: { msg: string }) => (
+    <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
+      <AlertCircle className="h-4 w-4 shrink-0" />
+      {msg}
+    </div>
+  );
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -222,7 +233,7 @@ export function SiteUsersPage() {
       </div>
 
       {error && !userDialogOpen && !subDialogOpen && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm animate-slide-down">
+        <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm animate-slide-down">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
           <button onClick={() => setError('')} className="ml-auto text-xs underline cursor-pointer">Dismiss</button>
@@ -231,22 +242,32 @@ export function SiteUsersPage() {
 
       <Tabs defaultValue="users" className="w-full">
         <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="users" className="flex-1 sm:flex-initial">Site Users</TabsTrigger>
-          <TabsTrigger value="subcontractors" className="flex-1 sm:flex-initial">Subcontractors</TabsTrigger>
+          <TabsTrigger value="users" className="flex-1 sm:flex-initial">
+            Site Users
+            {users.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">{users.length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="subcontractors" className="flex-1 sm:flex-initial">
+            Subcontractors
+            {subcontractors.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">{subcontractors.length}</span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users" className="space-y-4">
+        {/* ── Site Users Tab ─────────────────────────────────────────────── */}
+        <TabsContent value="users" className="space-y-4 mt-4">
           <div className="flex justify-end">
             <Button onClick={() => {
               setEditingUser(null); setUserEmail(''); setUserFullName('');
               setUserRole('crane_operator'); setUserPassword(''); setError('');
               setUserDialogOpen(true);
             }}>
-              <Plus className="h-4 w-4 mr-2" />Add User
+              <Plus className="h-4 w-4 mr-1" />Add User
             </Button>
           </div>
 
-          {/* Add User Dialog */}
           <Dialog open={userDialogOpen} onOpenChange={(open) => { setUserDialogOpen(open); if (!open) setError(''); }}>
             <DialogContent>
               <DialogHeader>
@@ -255,24 +276,19 @@ export function SiteUsersPage() {
                   {editingUser ? 'Update user details.' : 'Create a new site user account.'}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                {error && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {error}
-                  </div>
-                )}
+              <div className="space-y-4 mt-1">
+                {error && <ErrorBanner msg={error} />}
                 {!editingUser && (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label>Email</Label>
                     <Input type="email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="user@example.com" />
                   </div>
                 )}
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label>Full Name</Label>
                   <Input value={userFullName} onChange={(e) => setUserFullName(e.target.value)} placeholder="John Smith" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label>Role</Label>
                   <Select value={userRole} onValueChange={(v) => setUserRole(v as UserRole)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -284,14 +300,14 @@ export function SiteUsersPage() {
                   </Select>
                 </div>
                 {!editingUser && (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label>Password</Label>
                     <Input type="password" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} placeholder="Min 6 characters" />
                   </div>
                 )}
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
-                  <Button type="button" disabled={submitting} onClick={handleCreateUser}>
+                  <Button variant="outline" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
+                  <Button disabled={submitting} onClick={handleCreateUser}>
                     {submitting ? 'Saving...' : editingUser ? 'Update' : 'Create'}
                   </Button>
                 </DialogFooter>
@@ -301,60 +317,74 @@ export function SiteUsersPage() {
 
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             </div>
           ) : users.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground">No site users yet</h3>
-                <p className="text-sm text-muted-foreground mt-1">Add operators, supervisors, and signallers.</p>
-              </CardContent>
-            </Card>
+            <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-10 flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                <Users className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground">No site users yet</h3>
+              <p className="text-sm text-muted-foreground mt-1">Add operators, supervisors, and signallers.</p>
+            </div>
           ) : (
-            <div className="grid gap-3">
+            <div className="space-y-3">
               {users.map((u) => (
-                <Card key={u.id} className="group hover:border-primary/20 transition-all duration-200">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
-                        <UserCircle className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-foreground">{u.full_name}</h3>
-                        <p className="text-xs text-muted-foreground">{u.email}</p>
-                      </div>
-                      <Badge variant="secondary" className="ml-2">{roleLabels[u.role]}</Badge>
+                <div
+                  key={u.id}
+                  className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-4 flex items-center justify-between gap-4 hover:shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-shadow group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <UserCircle className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingUser(u); setUserFullName(u.full_name); setUserRole(u.role); setError(''); setUserDialogOpen(true);
-                      }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteUser(u.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{u.full_name}</h3>
+                      <p className="text-xs text-muted-foreground">{u.email}</p>
                     </div>
-                  </CardContent>
-                </Card>
+                    <span className={`ml-1 text-xs font-semibold px-2.5 py-0.5 rounded-full ${roleBadgeColor[u.role] || 'bg-muted text-muted-foreground'}`}>
+                      {roleLabels[u.role]}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-xl"
+                      onClick={() => {
+                        setEditingUser(u); setUserFullName(u.full_name);
+                        setUserRole(u.role); setError(''); setUserDialogOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-xl text-destructive hover:text-destructive hover:bg-red-50"
+                      onClick={() => handleDeleteUser(u.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="subcontractors" className="space-y-4">
+        {/* ── Subcontractors Tab ─────────────────────────────────────────── */}
+        <TabsContent value="subcontractors" className="space-y-4 mt-4">
           <div className="flex justify-end">
             <Button onClick={() => {
               setEditingSub(null); setSubCompanyName(''); setSubContactName('');
               setSubContactEmail(''); setSubPassword(''); setError('');
               setSubDialogOpen(true);
             }}>
-              <Plus className="h-4 w-4 mr-2" />Add Subcontractor
+              <Plus className="h-4 w-4 mr-1" />Add Subcontractor
             </Button>
           </div>
 
-          {/* Add Subcontractor Dialog */}
           <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setError(''); }}>
             <DialogContent>
               <DialogHeader>
@@ -363,34 +393,29 @@ export function SiteUsersPage() {
                   {editingSub ? 'Update subcontractor details.' : 'Register a new subcontractor for this site.'}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                {error && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {error}
-                  </div>
-                )}
-                <div className="space-y-2">
+              <div className="space-y-4 mt-1">
+                {error && <ErrorBanner msg={error} />}
+                <div className="space-y-1.5">
                   <Label>Company Name</Label>
                   <Input value={subCompanyName} onChange={(e) => setSubCompanyName(e.target.value)} placeholder="Subcontractor Co. Ltd" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label>Contact Name</Label>
                   <Input value={subContactName} onChange={(e) => setSubContactName(e.target.value)} placeholder="Contact person" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label>Contact Email</Label>
                   <Input type="email" value={subContactEmail} onChange={(e) => setSubContactEmail(e.target.value)} placeholder="contact@sub.com" disabled={!!editingSub} />
                 </div>
                 {!editingSub && (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label>Password</Label>
                     <Input type="password" value={subPassword} onChange={(e) => setSubPassword(e.target.value)} placeholder="Min 6 characters" />
                   </div>
                 )}
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setSubDialogOpen(false)}>Cancel</Button>
-                  <Button type="button" disabled={submitting} onClick={handleCreateSub}>
+                  <Button variant="outline" onClick={() => setSubDialogOpen(false)}>Cancel</Button>
+                  <Button disabled={submitting} onClick={handleCreateSub}>
                     {submitting ? 'Saving...' : editingSub ? 'Update' : 'Create'}
                   </Button>
                 </DialogFooter>
@@ -400,43 +425,57 @@ export function SiteUsersPage() {
 
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             </div>
           ) : subcontractors.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <Building2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground">No subcontractors yet</h3>
-                <p className="text-sm text-muted-foreground mt-1">Register subcontractors for crane bookings.</p>
-              </CardContent>
-            </Card>
+            <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-10 flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center mb-4">
+                <Building2 className="h-7 w-7 text-purple-600" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground">No subcontractors yet</h3>
+              <p className="text-sm text-muted-foreground mt-1">Register subcontractors for crane bookings.</p>
+            </div>
           ) : (
-            <div className="grid gap-3">
+            <div className="space-y-3">
               {subcontractors.map((sub) => (
-                <Card key={sub.id} className="group hover:border-primary/20 transition-all duration-200">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                        <Building2 className="h-5 w-5 text-purple-400" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-foreground">{sub.company_name}</h3>
-                        <p className="text-xs text-muted-foreground">{sub.contact_name} • {sub.contact_email}</p>
-                      </div>
+                <div
+                  key={sub.id}
+                  className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-4 flex items-center justify-between gap-4 hover:shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-shadow group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
+                      <Building2 className="h-5 w-5 text-purple-600" />
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingSub(sub); setSubCompanyName(sub.company_name); setSubContactName(sub.contact_name);
-                        setSubContactEmail(sub.contact_email); setError(''); setSubDialogOpen(true);
-                      }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteSub(sub.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{sub.company_name}</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {sub.contact_name} · {sub.contact_email}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-xl"
+                      onClick={() => {
+                        setEditingSub(sub); setSubCompanyName(sub.company_name);
+                        setSubContactName(sub.contact_name); setSubContactEmail(sub.contact_email);
+                        setError(''); setSubDialogOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-xl text-destructive hover:text-destructive hover:bg-red-50"
+                      onClick={() => handleDeleteSub(sub.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           )}

@@ -5,30 +5,41 @@ import type { Crane, CraneLog, CraneStatus, Subcontractor } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle
+  DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  ClipboardList, Plus, Pencil, Lock, Clock, AlertCircle
+  ClipboardList, Plus, Pencil, Lock, Clock, AlertCircle,
 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 const statusOptions: CraneStatus[] = [
-  'Working', 'Service', 'Thorough Examination', 'Breaking Down', 'Winded Off'
+  'Working', 'Service', 'Thorough Examination', 'Breaking Down', 'Winded Off',
 ];
 
-const statusColors: Record<CraneStatus, string> = {
-  'Working': 'bg-emerald-500/20 text-emerald-400',
-  'Service': 'bg-blue-500/20 text-blue-400',
-  'Thorough Examination': 'bg-purple-500/20 text-purple-400',
-  'Breaking Down': 'bg-red-500/20 text-red-400',
-  'Winded Off': 'bg-amber-500/20 text-amber-400',
-  'Idle': 'bg-gray-500/20 text-gray-400',
+type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'pending' | 'approved' | 'cancelled';
+
+const statusBadgeVariant: Record<CraneStatus, BadgeVariant> = {
+  Working:               'approved',
+  Service:               'default',
+  'Thorough Examination':'secondary',
+  'Breaking Down':       'destructive',
+  'Winded Off':          'pending',
+  Idle:                  'secondary',
+};
+
+const statusLeftBorder: Record<CraneStatus, string> = {
+  Working:               'border-l-emerald-500',
+  Service:               'border-l-blue-500',
+  'Thorough Examination':'border-l-purple-500',
+  'Breaking Down':       'border-l-red-500',
+  'Winded Off':          'border-l-amber-500',
+  Idle:                  'border-l-gray-300',
 };
 
 export default function CraneLogsPage() {
@@ -40,7 +51,6 @@ export default function CraneLogsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Create/Edit dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<CraneLog | null>(null);
   const [selectedCrane, setSelectedCrane] = useState('');
@@ -48,13 +58,14 @@ export default function CraneLogsPage() {
   const [jobDetails, setJobDetails] = useState('');
   const [selectedSubcontractor, setSelectedSubcontractor] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  // Track which cranes have open logs
   const [cranesWithOpenLogs, setCranesWithOpenLogs] = useState<Set<string>>(new Set());
 
   const canCreateLogs = profile?.role === 'crane_operator' || profile?.role === 'crane_supervisor';
   const canEditClosedLogs = profile?.role === 'appointed_person';
-  const canCloseLogs = profile?.role === 'crane_operator' || profile?.role === 'crane_supervisor' || profile?.role === 'appointed_person';
+  const canCloseLogs =
+    profile?.role === 'crane_operator' ||
+    profile?.role === 'crane_supervisor' ||
+    profile?.role === 'appointed_person';
 
   const fetchData = async () => {
     if (!profile?.site_id) { setLoading(false); return; }
@@ -70,39 +81,27 @@ export default function CraneLogsPage() {
     setSubcontractors(subsRes.data || []);
     setOpenLogs(openLogsRes.data as any || []);
     setClosedLogs(closedLogsRes.data as any || []);
-
-    const openCraneIds = new Set((openLogsRes.data || []).map((l: any) => l.crane_id));
-    setCranesWithOpenLogs(openCraneIds);
+    setCranesWithOpenLogs(new Set((openLogsRes.data || []).map((l: any) => l.crane_id)));
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, [profile]);
 
   const handleCreateLog = async () => {
-    if (!profile?.site_id || !profile?.user_id) {
-      setError('Profile is missing site assignment');
-      return;
-    }
-    if (!editingLog && !selectedCrane) {
-      setError('Please select a crane');
-      return;
-    }
-    if (!jobDetails.trim()) {
-      setError('Job details are required');
-      return;
-    }
+    if (!profile?.site_id || !profile?.user_id) { setError('Profile is missing site assignment'); return; }
+    if (!editingLog && !selectedCrane) { setError('Please select a crane'); return; }
+    if (!jobDetails.trim()) { setError('Job details are required'); return; }
     setError('');
     setSubmitting(true);
 
     try {
       if (editingLog) {
-        const updateData: Record<string, unknown> = {
+        const { error: updateErr } = await supabase.from('crane_logs').update({
           status,
           job_details: jobDetails,
           subcontractor_id: status === 'Working' ? selectedSubcontractor || null : null,
           updated_at: new Date().toISOString(),
-        };
-        const { error: updateErr } = await supabase.from('crane_logs').update(updateData).eq('id', editingLog.id);
+        }).eq('id', editingLog.id);
         if (updateErr) throw new Error(updateErr.message);
       } else {
         const { error: insertErr } = await supabase.from('crane_logs').insert({
@@ -165,21 +164,72 @@ export default function CraneLogsPage() {
 
   const selectedCraneHasOpenLog = cranesWithOpenLogs.has(selectedCrane);
 
+  const LogCard = ({ log, isClosed = false }: { log: CraneLog; isClosed?: boolean }) => (
+    <div className={cn(
+      'bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] border-l-4 overflow-hidden',
+      statusLeftBorder[log.status] || 'border-l-gray-300'
+    )}>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-foreground">
+                {(log.crane as any)?.name || 'Unknown Crane'}
+              </h3>
+              <Badge variant={statusBadgeVariant[log.status]}>{log.status}</Badge>
+              <Badge variant={isClosed ? 'secondary' : 'approved'}>
+                {isClosed ? 'Closed' : 'Open'}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{log.job_details}</p>
+            {log.subcontractor && (
+              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                <span className="w-4 h-4 rounded-full bg-muted inline-flex items-center justify-center text-[10px]">S</span>
+                {(log.subcontractor as any)?.company_name}
+              </p>
+            )}
+            <div className="flex items-center gap-4 mt-2.5 text-xs text-muted-foreground flex-wrap">
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {isClosed
+                  ? `${formatDateTime(log.start_time)} → ${log.end_time ? formatDateTime(log.end_time) : 'N/A'}`
+                  : `Started: ${formatDateTime(log.start_time)}`}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {(canCreateLogs || canEditClosedLogs) && (
+              <Button variant="outline" size="sm" onClick={() => openEditDialog(log)}>
+                <Pencil className="h-3.5 w-3.5 mr-1" />Edit
+              </Button>
+            )}
+            {!isClosed && canCloseLogs && (
+              <Button variant="secondary" size="sm" onClick={() => handleCloseLog(log.id)}>
+                <Lock className="h-3.5 w-3.5 mr-1" />Close
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Crane Logs</h1>
           <p className="text-sm text-muted-foreground mt-1">Track crane operations and status</p>
         </div>
         {canCreateLogs && (
           <Button onClick={openCreateDialog}>
-            <Plus className="h-4 w-4 mr-2" />New Log
+            <Plus className="h-4 w-4 mr-1" />New Log
           </Button>
         )}
       </div>
 
-      {/* Create/Edit Dialog */}
+      {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -188,34 +238,41 @@ export default function CraneLogsPage() {
               {editingLog ? 'Update the log details.' : 'Start a new crane operation log.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 mt-1">
             {error && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {error}
               </div>
             )}
-            <div className="space-y-2">
+
+            <div className="space-y-1.5">
               <Label>Crane</Label>
               <Select value={selectedCrane} onValueChange={setSelectedCrane} disabled={!!editingLog}>
-                <SelectTrigger><SelectValue placeholder="Select crane" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select crane" />
+                </SelectTrigger>
                 <SelectContent>
                   {cranes.map((c) => (
-                    <SelectItem key={c.id} value={c.id} disabled={!editingLog && cranesWithOpenLogs.has(c.id)}>
-                      {c.name} {!editingLog && cranesWithOpenLogs.has(c.id) ? '(has open log)' : ''}
+                    <SelectItem
+                      key={c.id}
+                      value={c.id}
+                      disabled={!editingLog && cranesWithOpenLogs.has(c.id)}
+                    >
+                      {c.name}{!editingLog && cranesWithOpenLogs.has(c.id) ? ' (has open log)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {!editingLog && selectedCraneHasOpenLog && (
-                <p className="text-xs text-destructive flex items-center gap-1">
+                <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
                   <AlertCircle className="h-3 w-3" />
                   This crane already has an open log. Close it first.
                 </p>
               )}
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label>Status</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as CraneStatus)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -228,7 +285,7 @@ export default function CraneLogsPage() {
             </div>
 
             {status === 'Working' && (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label>Subcontractor</Label>
                 <Select value={selectedSubcontractor} onValueChange={setSelectedSubcontractor}>
                   <SelectTrigger><SelectValue placeholder="Select subcontractor" /></SelectTrigger>
@@ -241,14 +298,23 @@ export default function CraneLogsPage() {
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label>Job Details</Label>
-              <Textarea value={jobDetails} onChange={(e) => setJobDetails(e.target.value)} placeholder="Describe the operation..." rows={3} />
+              <Textarea
+                value={jobDetails}
+                onChange={(e) => setJobDetails(e.target.value)}
+                placeholder="Describe the operation..."
+                rows={3}
+                className="rounded-xl border-border resize-none"
+              />
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="button" disabled={submitting || (!editingLog && selectedCraneHasOpenLog)} onClick={handleCreateLog}>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button
+                disabled={submitting || (!editingLog && selectedCraneHasOpenLog)}
+                onClick={handleCreateLog}
+              >
                 {submitting ? 'Saving...' : editingLog ? 'Update Log' : 'Start Log'}
               </Button>
             </DialogFooter>
@@ -256,12 +322,13 @@ export default function CraneLogsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Tabs */}
       <Tabs defaultValue="open" className="w-full">
         <TabsList>
           <TabsTrigger value="open">
             Open Logs
             {openLogs.length > 0 && (
-              <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">
                 {openLogs.length}
               </span>
             )}
@@ -269,116 +336,39 @@ export default function CraneLogsPage() {
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="open" className="space-y-4">
+        <TabsContent value="open" className="space-y-3 mt-4">
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             </div>
           ) : openLogs.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <ClipboardList className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground">No open logs</h3>
-                <p className="text-sm text-muted-foreground mt-1">All cranes are currently idle.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4">
-              {openLogs.map((log) => (
-                <Card key={log.id} className="border-l-4 border-l-emerald-500">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-foreground">
-                            {(log.crane as any)?.name || 'Unknown Crane'}
-                          </h3>
-                          <Badge className={statusColors[log.status]}>{log.status}</Badge>
-                          <Badge variant="approved">Open</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-2">{log.job_details}</p>
-                        {log.subcontractor && (
-                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                            📋 {(log.subcontractor as any)?.company_name}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Started: {formatDateTime(log.start_time)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {(canCreateLogs || canEditClosedLogs) && (
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(log)}>
-                            <Pencil className="h-3.5 w-3.5 mr-1" />Edit
-                          </Button>
-                        )}
-                        {canCloseLogs && (
-                          <Button variant="secondary" size="sm" onClick={() => handleCloseLog(log.id)}>
-                            <Lock className="h-3.5 w-3.5 mr-1" />Close
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                <ClipboardList className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground">No open logs</h3>
+              <p className="text-sm text-muted-foreground mt-1">All cranes are currently idle.</p>
             </div>
+          ) : (
+            openLogs.map((log) => <LogCard key={log.id} log={log} />)
           )}
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-4">
+        <TabsContent value="history" className="space-y-3 mt-4">
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             </div>
           ) : closedLogs.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <ClipboardList className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground">No log history</h3>
-                <p className="text-sm text-muted-foreground mt-1">Closed logs will appear here.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4">
-              {closedLogs.map((log) => (
-                <Card key={log.id} className="border-l-4 border-l-muted">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-foreground">
-                            {(log.crane as any)?.name || 'Unknown Crane'}
-                          </h3>
-                          <Badge className={statusColors[log.status]}>{log.status}</Badge>
-                          <Badge variant="secondary">Closed</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-2">{log.job_details}</p>
-                        {log.subcontractor && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            📋 {(log.subcontractor as any)?.company_name}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatDateTime(log.start_time)} → {log.end_time ? formatDateTime(log.end_time) : 'N/A'}
-                          </span>
-                        </div>
-                      </div>
-                      {canEditClosedLogs && (
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(log)}>
-                          <Pencil className="h-3.5 w-3.5 mr-1" />Edit
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                <ClipboardList className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground">No log history</h3>
+              <p className="text-sm text-muted-foreground mt-1">Closed logs will appear here.</p>
             </div>
+          ) : (
+            closedLogs.map((log) => <LogCard key={log.id} log={log} isClosed />)
           )}
         </TabsContent>
       </Tabs>

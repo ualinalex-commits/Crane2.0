@@ -2,35 +2,21 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Crane, CraneLog, CraneBooking, Subcontractor, CraneStatus } from '@/types';
-import { Clock, Construction, ChevronDown, Activity, Calendar, AlertTriangle, Zap } from 'lucide-react';
-
-// ─── THEME COLORS ────────────────────────────────────────────────────────────
-const BG = '#0b1929';
-const CARD_BG = '#112240';
-const CARD_BORDER = '#1e3a5f';
-const HEADER_BG = '#0d2137';
-const TEXT_PRIMARY = '#e2e8f0';
-const TEXT_SECONDARY = '#8892b0';
-const TEXT_MUTED = '#5a6a8a';
-const GOLD = '#f0c040';
-const GREEN = '#10b981';
-const AMBER = '#f59e0b';
-const RED = '#ef4444';
-const GREY = '#475569';
-const BLUE_ACCENT = '#3b82f6';
+import { Clock, Construction, Activity, Calendar, AlertTriangle, Zap, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // ─── STATUS HELPERS ──────────────────────────────────────────────────────────
-function getStatusDot(status: CraneStatus | 'Idle') {
-  const colors: Record<string, string> = {
-    'Working': GREEN,
-    'Service': AMBER,
-    'Thorough Examination': '#a855f7',
-    'Breaking Down': RED,
-    'Winded Off': AMBER,
-    'Idle': GREY,
-  };
-  return colors[status] || GREY;
-}
+
+type StatusKey = CraneStatus | 'Idle';
+
+const STATUS_CONFIG: Record<StatusKey, { dot: string; badge: string; label: string }> = {
+  Working:              { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700',  label: 'Working' },
+  Service:              { dot: 'bg-blue-500',    badge: 'bg-blue-50 text-blue-700',        label: 'Service' },
+  'Thorough Examination':{ dot: 'bg-purple-500', badge: 'bg-purple-50 text-purple-700',    label: 'Exam' },
+  'Breaking Down':      { dot: 'bg-red-500',     badge: 'bg-red-50 text-red-600',          label: 'Breaking Down' },
+  'Winded Off':         { dot: 'bg-amber-500',   badge: 'bg-amber-50 text-amber-700',      label: 'Winded Off' },
+  Idle:                 { dot: 'bg-gray-300',    badge: 'bg-gray-100 text-gray-500',       label: 'Idle' },
+};
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -53,6 +39,48 @@ function formatTimeShort(time: string): string {
   return time.slice(0, 5);
 }
 
+// ─── STAT TILE ────────────────────────────────────────────────────────────────
+function StatTile({ label, value, sub, colorClass }: {
+  label: string; value: number; sub?: string; colorClass: string;
+}) {
+  return (
+    <div className="bg-card rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)]">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+      <p className={cn('text-3xl font-bold mt-1', colorClass)}>{value}</p>
+      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+// ─── SECTION CARD ─────────────────────────────────────────────────────────────
+function SectionCard({ icon, title, count, countLabel, children, accent }: {
+  icon: React.ReactNode; title: string; count?: number; countLabel?: string;
+  children: React.ReactNode; accent?: boolean;
+}) {
+  return (
+    <div className={cn(
+      'bg-card rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] overflow-hidden',
+      accent && 'ring-2 ring-red-200'
+    )}>
+      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
+        <span className="text-muted-foreground">{icon}</span>
+        <span className="text-sm font-semibold text-foreground">{title}</span>
+        {count !== undefined && (
+          <span className={cn(
+            'ml-auto text-xs font-semibold px-2 py-0.5 rounded-full',
+            accent && count > 0
+              ? 'bg-red-50 text-red-600'
+              : 'bg-muted text-muted-foreground'
+          )}>
+            {count} {countLabel}
+          </span>
+        )}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 export default function LiveDashboard() {
   const { profile } = useAuth();
@@ -61,27 +89,22 @@ export default function LiveDashboard() {
   const [todayLogs, setTodayLogs] = useState<CraneLog[]>([]);
   const [todayBookings, setTodayBookings] = useState<CraneBooking[]>([]);
   const [pendingBookings, setPendingBookings] = useState<CraneBooking[]>([]);
-  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [now, setNow] = useState(new Date());
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [refreshing, setRefreshing] = useState(false);
 
-  const today = useMemo(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  }, []);
+  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  // ─── DATA FETCH ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     if (!profile?.site_id) return;
     const siteId = profile.site_id;
 
-    const [cranesRes, openLogsRes, todayLogsRes, todayBookingsRes, pendingRes, subsRes] = await Promise.all([
+    const [cranesRes, openLogsRes, todayLogsRes, todayBookingsRes, pendingRes] = await Promise.all([
       supabase.from('cranes').select('*').eq('site_id', siteId).order('name'),
       supabase.from('crane_logs').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', siteId).eq('is_open', true),
       supabase.from('crane_logs').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', siteId).gte('start_time', today + 'T00:00:00').order('start_time', { ascending: false }),
       supabase.from('crane_bookings').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', siteId).eq('status', 'approved').lte('job_date_start', today).gte('job_date_end', today).order('start_time'),
       supabase.from('crane_bookings').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', siteId).eq('status', 'pending').order('job_date_start'),
-      supabase.from('subcontractors').select('*').eq('site_id', siteId),
     ]);
 
     setCranes(cranesRes.data || []);
@@ -89,25 +112,26 @@ export default function LiveDashboard() {
     setTodayLogs(todayLogsRes.data as any || []);
     setTodayBookings(todayBookingsRes.data as any || []);
     setPendingBookings(pendingRes.data as any || []);
-    setSubcontractors(subsRes.data || []);
     setLastRefresh(new Date());
   }, [profile?.site_id, today]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // Auto-refresh every 60s
   useEffect(() => {
     const interval = setInterval(fetchAll, 60000);
     return () => clearInterval(interval);
   }, [fetchAll]);
-
-  // Live clock
   useEffect(() => {
     const tick = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(tick);
   }, []);
 
-  // ─── DERIVED STATE ───────────────────────────────────────────────────────
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    await fetchAll();
+    setRefreshing(false);
+  };
+
+  // ─── DERIVED STATE ──────────────────────────────────────────────────────
   const craneStatusMap = useMemo(() => {
     const map: Record<string, CraneLog> = {};
     openLogs.forEach(log => { map[log.crane_id] = log; });
@@ -118,9 +142,8 @@ export default function LiveDashboard() {
   const idleCount = cranes.length - openLogs.length;
   const pendingCount = pendingBookings.length;
 
-  // Utilisation: calculate working time per crane today
   const utilisationData = useMemo(() => {
-    const WORK_DAY_MS = 10 * 3600000; // 10h working day
+    const WORK_DAY_MS = 10 * 3600000;
     return cranes.map(crane => {
       const logs = todayLogs.filter(l => l.crane_id === crane.id);
       let workingMs = 0;
@@ -143,465 +166,276 @@ export default function LiveDashboard() {
     });
   }, [cranes, todayLogs]);
 
-  // ─── STYLES ──────────────────────────────────────────────────────────────
-  const cardStyle: React.CSSProperties = {
-    background: CARD_BG,
-    border: `1px solid ${CARD_BORDER}`,
-    borderRadius: 14,
-    overflow: 'hidden',
-  };
-  const cardHeaderStyle: React.CSSProperties = {
-    padding: '14px 18px',
-    borderBottom: `1px solid ${CARD_BORDER}`,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    fontSize: 13,
-    fontWeight: 600,
-    color: TEXT_SECONDARY,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-  };
-  const cardBodyStyle: React.CSSProperties = {
-    padding: '12px 18px',
-  };
-
   const siteName = (profile?.site as any)?.name || 'All Sites';
 
   return (
-    <>
-      <style>{`
-        .ld-root { background:${BG}; min-height:calc(100% + 2rem); color:${TEXT_PRIMARY}; font-family:'Inter',system-ui,sans-serif; margin:-1rem; padding:0; }
-        .ld-header { background:${HEADER_BG}; border-bottom:1px solid ${CARD_BORDER}; padding:12px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-        .ld-grid { padding:20px 24px; display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:start; }
-        .ld-title-sub { color:${TEXT_MUTED}; font-size:13px; font-weight:400; }
-        @media (max-width:1024px) {
-          .ld-grid { grid-template-columns:1fr 1fr; }
-        }
-        @media (max-width:640px) {
-          .ld-root { margin:-1rem; }
-          .ld-header { padding:10px 14px; gap:10px; }
-          .ld-grid { grid-template-columns:1fr; padding:12px 14px; gap:14px; }
-          .ld-title-sub { display:none; }
-          .ld-site-filter { display:none !important; }
-        }
-      `}</style>
-      <div className="ld-root">
-      {/* ─── HEADER BAR ──────────────────────────────────────────────────── */}
-      <div className="ld-header">
-        {/* Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 'auto' }}>
-          <Zap style={{ color: GOLD, width: 20, height: 20 }} />
-          <span style={{ color: GOLD, fontWeight: 700, fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
-            Lifting Ops
-          </span>
-          <span className="ld-title-sub">— Live Dashboard</span>
-        </div>
+    <div className="space-y-5 animate-fade-in">
 
-        {/* Site filter */}
-        <div className="ld-site-filter" style={{
-          background: CARD_BG,
-          border: `1px solid ${CARD_BORDER}`,
-          borderRadius: 8,
-          padding: '6px 14px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 13,
-          color: TEXT_SECONDARY,
-          cursor: 'default',
-        }}>
-          {siteName}
-          <ChevronDown style={{ width: 14, height: 14, opacity: 0.5 }} />
+      {/* ── Page header ─────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Zap className="h-4 w-4 text-primary" />
+            <span className="text-xs font-bold text-primary uppercase tracking-wider">Live Operations</span>
+          </div>
+          <h1 className="text-2xl font-bold text-foreground">{siteName}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
         </div>
-
-        {/* Status badges */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <StatusBadge label="Working" count={workingCount} color={GREEN} />
-          <StatusBadge label="Idle" count={idleCount} color={GREY} />
-          <StatusBadge label="Pending" count={pendingCount} color={AMBER} />
-        </div>
-
-        {/* Live clock */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 500, color: TEXT_SECONDARY, fontVariantNumeric: 'tabular-nums' }}>
-          <Clock style={{ width: 14, height: 14, color: BLUE_ACCENT }} />
-          {now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground tabular-nums">
+            <Clock className="h-4 w-4 text-primary" />
+            {now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </div>
+          <button
+            onClick={handleManualRefresh}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <RefreshCw className={cn('h-3 w-3', refreshing && 'animate-spin')} />
+            {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+          </button>
         </div>
       </div>
 
-      {/* ─── MAIN GRID ───────────────────────────────────────────────────── */}
-      <div className="ld-grid">
+      {/* ── Summary stat tiles ──────────────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Working" value={workingCount} sub="cranes active" colorClass="text-emerald-600" />
+        <StatTile label="Idle" value={idleCount} sub="cranes free" colorClass="text-gray-500" />
+        <StatTile label="Pending" value={pendingCount} sub="requests" colorClass={pendingCount > 0 ? 'text-amber-600' : 'text-gray-500'} />
+      </div>
 
-        {/* ═══ LEFT COLUMN ═══ */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* ── Main grid ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+
+        {/* ── Left column ─── */}
+        <div className="space-y-4">
+
           {/* Crane Status */}
-          <div style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <Construction style={{ width: 16, height: 16, color: GOLD }} />
-              Crane Status
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: TEXT_MUTED, fontWeight: 400, textTransform: 'none' }}>
-                {cranes.length} cranes
-              </span>
-            </div>
-            <div style={{ ...cardBodyStyle, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SectionCard
+            icon={<Construction className="h-4 w-4" />}
+            title="Crane Status"
+            count={cranes.length}
+            countLabel="cranes"
+          >
+            <div className="space-y-2">
+              {cranes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No cranes configured</p>
+              )}
               {cranes.map(crane => {
                 const log = craneStatusMap[crane.id];
-                const status: CraneStatus | 'Idle' = log ? log.status : 'Idle';
-                const subName = log?.subcontractor ? (log.subcontractor as any).company_name : '—';
+                const status: StatusKey = log ? log.status : 'Idle';
+                const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.Idle;
+                const subName = log?.subcontractor ? (log.subcontractor as any).company_name : null;
                 const lastUpdate = log ? log.updated_at || log.start_time : crane.created_at;
                 return (
-                  <div key={crane.id} style={{
-                    background: '#0d2137',
-                    borderRadius: 10,
-                    padding: '12px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    border: `1px solid ${log ? CARD_BORDER : 'transparent'}`,
-                  }}>
-                    <div style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      background: getStatusDot(status),
-                      boxShadow: `0 0 8px ${getStatusDot(status)}60`,
-                      flexShrink: 0,
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{crane.name}</div>
-                      <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 2 }}>
-                        {status !== 'Idle' && status !== 'Working' ? status : subName}
-                      </div>
+                  <div key={crane.id} className="flex items-center gap-3 p-3 rounded-xl bg-background">
+                    <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', cfg.dot)} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">{crane.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {subName || (status !== 'Idle' && status !== 'Working' ? status : 'Available')}
+                      </p>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: getStatusDot(status),
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                      }}>
-                        {status}
-                      </div>
-                      <div style={{ fontSize: 10, color: TEXT_MUTED, marginTop: 2 }}>
-                        {timeAgo(lastUpdate)}
-                      </div>
+                    <div className="text-right shrink-0">
+                      <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', cfg.badge)}>
+                        {cfg.label}
+                      </span>
+                      <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(lastUpdate)}</p>
                     </div>
                   </div>
                 );
               })}
-              {cranes.length === 0 && (
-                <div style={{ textAlign: 'center', color: TEXT_MUTED, padding: 20, fontSize: 13 }}>
-                  No cranes configured
-                </div>
-              )}
             </div>
-          </div>
+          </SectionCard>
 
           {/* Availability */}
-          <div style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <Activity style={{ width: 16, height: 16, color: GREEN }} />
-              Availability
-            </div>
-            <div style={{ ...cardBodyStyle, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SectionCard
+            icon={<Activity className="h-4 w-4" />}
+            title="Availability"
+          >
+            <div className="divide-y divide-border">
               {cranes.map(crane => {
                 const hasOpenLog = !!craneStatusMap[crane.id];
                 const busy = hasOpenLog && craneStatusMap[crane.id].status !== 'Idle';
                 return (
-                  <div key={crane.id} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 0',
-                    borderBottom: `1px solid ${CARD_BORDER}20`,
-                  }}>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{crane.name}</span>
-                    <span style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      padding: '3px 10px',
-                      borderRadius: 20,
-                      background: busy ? `${RED}20` : `${GREEN}20`,
-                      color: busy ? RED : GREEN,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}>
+                  <div key={crane.id} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                    <span className="text-sm font-medium text-foreground">{crane.name}</span>
+                    <span className={cn(
+                      'text-xs font-semibold px-2.5 py-1 rounded-full',
+                      busy ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'
+                    )}>
                       {busy ? 'Busy' : 'Ready'}
                     </span>
                   </div>
                 );
               })}
+              {cranes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-3">No cranes</p>
+              )}
             </div>
-          </div>
+          </SectionCard>
         </div>
 
-        {/* ═══ MIDDLE COLUMN ═══ */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* ── Middle column ─── */}
+        <div className="space-y-4">
+
           {/* Today's Activity */}
-          <div style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <Activity style={{ width: 16, height: 16, color: BLUE_ACCENT }} />
-              Today's Activity
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: TEXT_MUTED, fontWeight: 400, textTransform: 'none' }}>
-                {todayLogs.length} events
-              </span>
-            </div>
-            <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+          <SectionCard
+            icon={<Activity className="h-4 w-4" />}
+            title="Today's Activity"
+            count={todayLogs.length}
+            countLabel="events"
+          >
+            <div className="space-y-0 -mx-4 max-h-72 overflow-y-auto">
               {todayLogs.length === 0 ? (
-                <div style={{ textAlign: 'center', color: TEXT_MUTED, padding: '30px 20px', fontSize: 13 }}>
-                  No activity recorded today
-                </div>
+                <p className="text-sm text-muted-foreground text-center py-6 px-4">No activity recorded today</p>
               ) : (
                 todayLogs.map(log => {
                   const start = new Date(log.start_time);
                   const end = log.end_time ? new Date(log.end_time) : new Date();
                   const duration = end.getTime() - start.getTime();
-                  const craneName = (log.crane as any)?.name || '—';
-                  const subName = (log.subcontractor as any)?.company_name || '—';
+                  const cfg = STATUS_CONFIG[log.status] || STATUS_CONFIG.Idle;
                   return (
-                    <div key={log.id} style={{
-                      padding: '10px 18px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      borderBottom: `1px solid ${CARD_BORDER}40`,
-                    }}>
-                      <div style={{
-                        width: 8, height: 8, borderRadius: '50%',
-                        background: getStatusDot(log.status),
-                        boxShadow: `0 0 6px ${getStatusDot(log.status)}50`,
-                        flexShrink: 0,
-                      }} />
-                      <div style={{ fontSize: 12, color: TEXT_MUTED, width: 44, flexShrink: 0 }}>
+                    <div key={log.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-background transition-colors">
+                      <div className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot)} />
+                      <span className="text-xs text-muted-foreground w-10 shrink-0 tabular-nums">
                         {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className={cn('text-xs font-semibold', cfg.badge.split(' ')[1])}>{log.status}</span>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {(log.crane as any)?.name} · {(log.subcontractor as any)?.company_name || '—'}
+                        </p>
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: getStatusDot(log.status) }}>
-                          {log.status}
-                        </div>
-                        <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 1 }}>
-                          {craneName} • {subName}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: TEXT_MUTED, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                        {formatDuration(duration)}
-                      </div>
+                      <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(duration)}</span>
                     </div>
                   );
                 })
               )}
             </div>
-          </div>
+          </SectionCard>
 
           {/* Utilisation Today */}
-          <div style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <Zap style={{ width: 16, height: 16, color: AMBER }} />
-              Utilisation Today
-            </div>
-            <div style={{ ...cardBodyStyle, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <SectionCard
+            icon={<Zap className="h-4 w-4" />}
+            title="Utilisation Today"
+          >
+            <div className="space-y-4">
+              {utilisationData.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-2">No cranes</p>
+              )}
               {utilisationData.map(({ crane, workingMs, windedMs, pct, workingPct }) => (
                 <div key={crane.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{crane.name}</span>
-                    <span style={{ fontSize: 12, color: TEXT_MUTED }}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-sm font-medium text-foreground">{crane.name}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
                       {formatDuration(workingMs + windedMs)}
                     </span>
                   </div>
-                  <div style={{
-                    height: 8,
-                    borderRadius: 4,
-                    background: '#0d2137',
-                    overflow: 'hidden',
-                    display: 'flex',
-                  }}>
-                    <div style={{
-                      width: `${workingPct}%`,
-                      background: GREEN,
-                      borderRadius: '4px 0 0 4px',
-                      transition: 'width 0.3s ease',
-                    }} />
-                    <div style={{
-                      width: `${Math.max(0, pct - workingPct)}%`,
-                      background: AMBER,
-                      transition: 'width 0.3s ease',
-                    }} />
+                  <div className="h-2 rounded-full bg-muted overflow-hidden flex">
+                    <div
+                      className="bg-emerald-500 transition-all duration-500 ease-out"
+                      style={{ width: `${workingPct}%` }}
+                    />
+                    <div
+                      className="bg-amber-400 transition-all duration-500 ease-out"
+                      style={{ width: `${Math.max(0, pct - workingPct)}%` }}
+                    />
                   </div>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                    <span style={{ fontSize: 10, color: GREEN, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: GREEN, display: 'inline-block' }} />
+                  <div className="flex gap-3 mt-1.5">
+                    <span className="text-[10px] text-emerald-600 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
                       Working {formatDuration(workingMs)}
                     </span>
                     {windedMs > 0 && (
-                      <span style={{ fontSize: 10, color: AMBER, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: AMBER, display: 'inline-block' }} />
+                      <span className="text-[10px] text-amber-600 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
                         Winded {formatDuration(windedMs)}
                       </span>
                     )}
                   </div>
                 </div>
               ))}
-              {cranes.length === 0 && (
-                <div style={{ textAlign: 'center', color: TEXT_MUTED, padding: 16, fontSize: 13 }}>No cranes</div>
-              )}
             </div>
-          </div>
+          </SectionCard>
         </div>
 
-        {/* ═══ RIGHT COLUMN ═══ */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* ── Right column ─── */}
+        <div className="space-y-4">
+
           {/* Today's Lifts */}
-          <div style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <Calendar style={{ width: 16, height: 16, color: BLUE_ACCENT }} />
-              Today's Lifts
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: TEXT_MUTED, fontWeight: 400, textTransform: 'none' }}>
-                {todayBookings.length} scheduled
-              </span>
-            </div>
-            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+          <SectionCard
+            icon={<Calendar className="h-4 w-4" />}
+            title="Today's Lifts"
+            count={todayBookings.length}
+            countLabel="scheduled"
+          >
+            <div className="space-y-0 -mx-4 max-h-60 overflow-y-auto">
               {todayBookings.length === 0 ? (
-                <div style={{ textAlign: 'center', color: TEXT_MUTED, padding: '30px 20px', fontSize: 13 }}>
-                  No lifts scheduled today
-                </div>
+                <p className="text-sm text-muted-foreground text-center py-6 px-4">No lifts scheduled today</p>
               ) : (
                 todayBookings.map(booking => {
                   const craneName = (booking.crane as any)?.name || '—';
                   const subName = (booking.subcontractor as any)?.company_name || '—';
                   return (
-                    <div key={booking.id} style={{
-                      padding: '10px 18px',
-                      borderBottom: `1px solid ${CARD_BORDER}40`,
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: BLUE_ACCENT, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    <div key={booking.id} className="px-4 py-3 border-b border-border last:border-0 hover:bg-background transition-colors">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-semibold text-primary tabular-nums">
                           {formatTimeShort(booking.start_time)} – {formatTimeShort(booking.end_time)}
                         </span>
-                        <span style={{ fontSize: 11, color: TEXT_MUTED }}>{craneName}</span>
+                        <span className="text-xs text-muted-foreground">{craneName}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 4 }}>
-                        {booking.job_details}
-                      </div>
-                      <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 2 }}>
-                        {subName}
-                      </div>
+                      <p className="text-xs text-foreground font-medium mt-1 line-clamp-1">{booking.job_details}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{subName}</p>
                     </div>
                   );
                 })
               )}
             </div>
-          </div>
+          </SectionCard>
 
           {/* Pending Requests */}
-          <div style={{
-            ...cardStyle,
-            border: pendingBookings.length > 0 ? `1px solid ${RED}40` : `1px solid ${CARD_BORDER}`,
-          }}>
-            <div style={{
-              ...cardHeaderStyle,
-              borderBottomColor: pendingBookings.length > 0 ? `${RED}30` : CARD_BORDER,
-            }}>
-              <AlertTriangle style={{ width: 16, height: 16, color: pendingBookings.length > 0 ? RED : TEXT_MUTED }} />
-              Pending Requests
-              {pendingBookings.length > 0 && (
-                <span style={{
-                  marginLeft: 8,
-                  background: `${RED}20`,
-                  color: RED,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                }}>
-                  {pendingBookings.length}
-                </span>
-              )}
-            </div>
-            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+          <SectionCard
+            icon={<AlertTriangle className={cn('h-4 w-4', pendingBookings.length > 0 ? 'text-red-500' : '')} />}
+            title="Pending Requests"
+            count={pendingBookings.length}
+            countLabel="pending"
+            accent={pendingBookings.length > 0}
+          >
+            <div className="space-y-0 -mx-4 max-h-64 overflow-y-auto">
               {pendingBookings.length === 0 ? (
-                <div style={{ textAlign: 'center', color: TEXT_MUTED, padding: '30px 20px', fontSize: 13 }}>
-                  No pending requests
-                </div>
+                <p className="text-sm text-muted-foreground text-center py-6 px-4">No pending requests</p>
               ) : (
                 pendingBookings.map(booking => {
                   const craneName = (booking.crane as any)?.name || '—';
                   const subName = (booking.subcontractor as any)?.company_name || '—';
                   return (
-                    <div key={booking.id} style={{
-                      padding: '10px 18px',
-                      borderBottom: `1px solid ${RED}15`,
-                      background: `${RED}05`,
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: RED, fontWeight: 600 }}>
+                    <div key={booking.id} className="px-4 py-3 border-b border-border last:border-0 bg-red-50/40 hover:bg-red-50 transition-colors">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-semibold text-red-600 tabular-nums">
                           {new Date(booking.job_date_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                           {' '}{formatTimeShort(booking.start_time)} – {formatTimeShort(booking.end_time)}
                         </span>
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: 10,
-                          background: `${AMBER}20`,
-                          color: AMBER,
-                          textTransform: 'uppercase',
-                        }}>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
                           Pending
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 4 }}>
-                        {booking.job_details}
-                      </div>
-                      <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 2 }}>
-                        {subName} • {craneName}
-                      </div>
+                      <p className="text-xs text-foreground font-medium mt-1 line-clamp-1">{booking.job_details}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{subName} · {craneName}</p>
                     </div>
                   );
                 })
               )}
             </div>
-          </div>
+          </SectionCard>
         </div>
       </div>
 
-      {/* ─── FOOTER ──────────────────────────────────────────────────────── */}
-      <div style={{
-        padding: '8px 24px',
-        fontSize: 10,
-        color: TEXT_MUTED,
-        display: 'flex',
-        justifyContent: 'space-between',
-      }}>
-        <span>Auto-refreshes every 60s</span>
-        <span>Last updated: {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-      </div>
-    </div>
-    </>
-  );
-}
-
-// ─── SUB-COMPONENTS ────────────────────────────────────────────────────────
-function StatusBadge({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      background: `${color}15`,
-      border: `1px solid ${color}30`,
-      borderRadius: 20,
-      padding: '4px 12px',
-      fontSize: 12,
-      fontWeight: 600,
-      color,
-    }}>
-      <div style={{
-        width: 7,
-        height: 7,
-        borderRadius: '50%',
-        background: color,
-        boxShadow: `0 0 6px ${color}60`,
-      }} />
-      {count} {label}
+      {/* Footer */}
+      <p className="text-xs text-muted-foreground text-center pb-2">
+        Auto-refreshes every 60s · Last updated {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+      </p>
     </div>
   );
 }
