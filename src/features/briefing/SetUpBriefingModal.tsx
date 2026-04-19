@@ -21,6 +21,7 @@ interface SetUpBriefingModalProps {
 export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefing, pastBriefing }: SetUpBriefingModalProps) {
   const { profile } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Form State
   const [attendees, setAttendees] = useState<Array<{ role: string; name: string; company: string }>>([]);
@@ -160,13 +161,14 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
     console.log('handleSubmit triggered', profile);
     if (!profile?.site_id) {
-      alert('Error: You are not assigned to a site. Cannot save briefing.');
+      setErrorMsg('Error: You are not assigned to a site. Cannot save briefing.');
       return;
     }
     if (!supervisorSignatureUrl) {
-      alert('Please provide a signature before saving.');
+      setErrorMsg('Please provide a signature before saving.');
       return;
     }
 
@@ -208,11 +210,11 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
         if (error) throw error;
       }
 
-      alert('Daily briefing saved.');
       onSuccess();
       onClose();
     } catch (err: any) {
-      alert(err.message || 'Failed to save briefing');
+      console.error('Submit error:', err);
+      setErrorMsg(err.message || 'Failed to save briefing');
     } finally {
       setIsSubmitting(false);
     }
@@ -224,6 +226,12 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
         <DialogHeader>
           <DialogTitle>{existingBriefing ? 'Edit Daily Briefing' : 'Set Up Daily Briefing'}</DialogTitle>
         </DialogHeader>
+
+        {errorMsg && (
+          <div className="bg-destructive/15 text-destructive p-3 rounded-md text-sm mb-4">
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-8 mt-4">
           
