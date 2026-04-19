@@ -1,9 +1,10 @@
 import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Building2, MapPin, Construction as CraneIcon, ClipboardList, Calendar, Users, Shield } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { UserRole } from '@/types';
+import LiveDashboard from './LiveDashboard';
 
 function getRoleLabel(role: UserRole): string {
   const labels: Record<UserRole, string> = {
@@ -83,6 +84,12 @@ export function DashboardPage() {
 
   if (!profile) return null;
 
+  // Appointed Person gets the live operations dashboard
+  if (profile.role === 'appointed_person') {
+    return <LiveDashboard />;
+  }
+
+  // All other roles get quick-actions dashboard
   const filteredActions = quickActions.filter((a) => a.roles.includes(profile.role));
 
   return (

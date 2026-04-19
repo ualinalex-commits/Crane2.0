@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Building2, MapPin, Construction, ClipboardList, Calendar, Users, LogOut,
-  Menu, X, ChevronDown, Shield, UserCircle
+  Menu, X, ChevronDown, Shield, UserCircle, LayoutDashboard
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -19,9 +19,17 @@ interface NavItem {
   href: string;
   icon: React.ReactNode;
   roles: UserRole[];
+  exact?: boolean;
 }
 
 const navItems: NavItem[] = [
+  {
+    label: 'Live Dashboard',
+    href: '/',
+    icon: <LayoutDashboard className="h-5 w-5" />,
+    roles: ['appointed_person'],
+    exact: true,
+  },
   {
     label: 'Companies',
     href: '/companies',
@@ -121,7 +129,9 @@ export function AppLayout() {
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {filteredNavItems.map((item) => {
-            const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/');
+            const isActive = item.exact
+              ? location.pathname === item.href
+              : location.pathname === item.href || location.pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.href}
