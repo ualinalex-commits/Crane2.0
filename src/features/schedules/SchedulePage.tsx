@@ -51,7 +51,7 @@ export function SchedulePage() {
     const [cranesRes, subsRes, bookingsRes] = await Promise.all([
       supabase.from('cranes').select('*').eq('site_id', profile.site_id).order('name'),
       supabase.from('subcontractors').select('*').eq('site_id', profile.site_id).order('company_name'),
-      supabase.from('crane_bookings').select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles!crane_bookings_created_by_fkey(*)').eq('site_id', profile.site_id).neq('status', 'cancelled').order('job_date_start'),
+      supabase.from('crane_bookings').select('*, crane:cranes(*), subcontractor:subcontractors(*)').eq('site_id', profile.site_id).neq('status', 'cancelled').order('job_date_start'),
     ]);
     setCranes(cranesRes.data || []);
     setSubcontractors(subsRes.data || []);
@@ -72,9 +72,16 @@ export function SchedulePage() {
     return { approved, pending };
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.site_id || !profile?.user_id) return;
+  const handleSubmit = async () => {
+    if (!profile?.site_id || !profile?.user_id) {
+      setError('Profile is missing site assignment');
+      return;
+    }
+    if (!selectedCrane) { setError('Please select a crane'); return; }
+    if (!jobDetails.trim()) { setError('Job details are required'); return; }
+    if (!dateStart) { setError('Start date is required'); return; }
+    if (!startTime || !endTime) { setError('Start and end time are required'); return; }
+
     setError(''); setWarning(''); setSubmitting(true);
 
     const dEnd = dateEnd || dateStart;
@@ -90,12 +97,18 @@ export function SchedulePage() {
 
     const bookingStatus = isAP ? 'approved' : 'pending';
 
-    await supabase.from('crane_bookings').insert({
+    const { error: insertErr } = await supabase.from('crane_bookings').insert({
       crane_id: selectedCrane, site_id: profile.site_id, created_by: profile.user_id,
       job_details: jobDetails, job_date_start: dateStart, job_date_end: dEnd,
       start_time: startTime, end_time: endTime, subcontractor_id: subId,
       status: bookingStatus, approved_by: isAP ? profile.user_id : null,
     });
+
+    if (insertErr) {
+      setError(insertErr.message);
+      setSubmitting(false);
+      return;
+    }
 
     setDialogOpen(false); resetForm(); setSubmitting(false); fetchData();
   };
@@ -155,12 +168,12 @@ export function SchedulePage() {
             <DialogTitle>New Crane Booking</DialogTitle>
             <DialogDescription>Book a crane for your job.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-4">
             {error && <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
             {warning && <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 text-warning text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4 shrink-0" />{warning}</div>}
             <div className="space-y-2">
               <Label>Crane</Label>
-              <Select value={selectedCrane} onValueChange={setSelectedCrane} required>
+              <Select value={selectedCrane} onValueChange={setSelectedCrane}>
                 <SelectTrigger><SelectValue placeholder="Select crane" /></SelectTrigger>
                 <SelectContent>{cranes.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
               </Select>
@@ -176,12 +189,12 @@ export function SchedulePage() {
             )}
             <div className="space-y-2">
               <Label>Job Details</Label>
-              <Textarea value={jobDetails} onChange={e => setJobDetails(e.target.value)} placeholder="Describe the job..." required rows={2} />
+              <Textarea value={jobDetails} onChange={e => setJobDetails(e.target.value)} placeholder="Describe the job..." rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Start Date</Label>
-                <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} min={tomorrow} required />
+                <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} min={tomorrow} />
               </div>
               <div className="space-y-2">
                 <Label>End Date</Label>
@@ -189,14 +202,14 @@ export function SchedulePage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Start Time</Label><Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required /></div>
-              <div className="space-y-2"><Label>End Time</Label><Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required /></div>
+              <div className="space-y-2"><Label>Start Time</Label><Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} /></div>
+              <div className="space-y-2"><Label>End Time</Label><Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} /></div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={submitting}>{submitting ? 'Booking...' : 'Submit Booking'}</Button>
+              <Button type="button" disabled={submitting} onClick={handleSubmit}>{submitting ? 'Booking...' : 'Submit Booking'}</Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 

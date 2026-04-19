@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Crane } from '@/types';
@@ -8,9 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle, DialogTrigger
+  DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
-import { Construction as CraneIcon, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Construction as CraneIcon, Plus, Pencil, Trash2, AlertCircle } from 'lucide-react';
 
 export function CranesPage() {
   const { profile } = useAuth();
@@ -22,6 +22,7 @@ export function CranesPage() {
   const [model, setModel] = useState('');
   const [capacity, setCapacity] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchCranes = async () => {
     if (!profile?.site_id) { setLoading(false); return; }
@@ -32,26 +33,42 @@ export function CranesPage() {
 
   useEffect(() => { fetchCranes(); }, [profile]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.site_id) return;
+  const handleSubmit = async () => {
+    if (!name.trim() || !model.trim() || !capacity.trim()) {
+      setError('All fields are required');
+      return;
+    }
+    if (!profile?.site_id) {
+      setError('No site assigned to your profile');
+      return;
+    }
+    setError('');
     setSubmitting(true);
 
-    if (editingCrane) {
-      await supabase.from('cranes').update({ name, model, capacity }).eq('id', editingCrane.id);
-    } else {
-      await supabase.from('cranes').insert({ name, model, capacity, site_id: profile.site_id });
-    }
+    try {
+      if (editingCrane) {
+        const { error: updateErr } = await supabase.from('cranes').update({ name, model, capacity }).eq('id', editingCrane.id);
+        if (updateErr) throw new Error(updateErr.message);
+      } else {
+        const { error: insertErr } = await supabase.from('cranes').insert({ name, model, capacity, site_id: profile.site_id });
+        if (insertErr) throw new Error(insertErr.message);
+      }
 
-    setDialogOpen(false); setEditingCrane(null);
-    setName(''); setModel(''); setCapacity('');
-    setSubmitting(false);
-    fetchCranes();
+      setDialogOpen(false);
+      setEditingCrane(null);
+      setName(''); setModel(''); setCapacity('');
+      fetchCranes();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save crane');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleEdit = (crane: Crane) => {
     setEditingCrane(crane);
     setName(crane.name); setModel(crane.model); setCapacity(crane.capacity);
+    setError('');
     setDialogOpen(true);
   };
 
@@ -65,6 +82,7 @@ export function CranesPage() {
   const openCreate = () => {
     setEditingCrane(null);
     setName(''); setModel(''); setCapacity('');
+    setError('');
     setDialogOpen(true);
   };
 
@@ -75,36 +93,43 @@ export function CranesPage() {
           <h1 className="text-2xl font-bold text-foreground">Cranes</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage cranes on your site</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Crane</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingCrane ? 'Edit Crane' : 'Add Crane'}</DialogTitle>
-              <DialogDescription>{editingCrane ? 'Update crane details.' : 'Add a new crane to the site.'}</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="crane-name">Crane Name</Label>
-                <Input id="crane-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tower Crane 1" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="crane-model">Model</Label>
-                <Input id="crane-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. Liebherr 280 EC-H" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="crane-capacity">Capacity</Label>
-                <Input id="crane-capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="e.g. 12 tonnes" required />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : editingCrane ? 'Update' : 'Create'}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Crane</Button>
       </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingCrane ? 'Edit Crane' : 'Add Crane'}</DialogTitle>
+            <DialogDescription>{editingCrane ? 'Update crane details.' : 'Add a new crane to the site.'}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {error && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="crane-name">Crane Name</Label>
+              <Input id="crane-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tower Crane 1" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="crane-model">Model</Label>
+              <Input id="crane-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. Liebherr 280 EC-H" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="crane-capacity">Capacity</Label>
+              <Input id="crane-capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="e.g. 12 tonnes" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="button" disabled={submitting} onClick={handleSubmit}>
+                {submitting ? 'Saving...' : editingCrane ? 'Update' : 'Create'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <div className="flex justify-center py-12">

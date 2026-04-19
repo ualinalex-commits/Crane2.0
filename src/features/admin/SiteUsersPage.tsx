@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Profile, Subcontractor, UserRole } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle, DialogTrigger
+  DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
-import { Users, Plus, Pencil, Trash2, UserCircle, Building2 } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, UserCircle, Building2, AlertCircle } from 'lucide-react';
 
 const siteRoles: { value: UserRole; label: string }[] = [
   { value: 'crane_supervisor', label: 'Crane Supervisor' },
@@ -36,6 +36,7 @@ export function SiteUsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   // User dialog
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -76,84 +77,127 @@ export function SiteUsersPage() {
 
   useEffect(() => { fetchData(); }, [profile]);
 
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.site_id || !profile?.company_id) return;
+  const handleCreateUser = async () => {
+    if (!profile?.site_id || !profile?.company_id) {
+      setError('Your profile is missing site or company assignment');
+      return;
+    }
+    if (!editingUser && (!userEmail.trim() || !userFullName.trim() || !userPassword.trim())) {
+      setError('All fields are required');
+      return;
+    }
+    if (editingUser && !userFullName.trim()) {
+      setError('Full name is required');
+      return;
+    }
+    setError('');
     setSubmitting(true);
 
-    if (editingUser) {
-      await supabase.from('profiles').update({
-        full_name: userFullName,
-        role: userRole,
-      }).eq('id', editingUser.id);
-    } else {
-      // Create auth user then profile
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userEmail,
-        password: userPassword,
-        options: { data: { full_name: userFullName, role: userRole } }
-      });
-      if (!authError && authData.user) {
-        await supabase.from('profiles').insert({
-          user_id: authData.user.id,
-          email: userEmail,
+    try {
+      if (editingUser) {
+        const { error: updateErr } = await supabase.from('profiles').update({
           full_name: userFullName,
           role: userRole,
-          company_id: profile.company_id,
-          site_id: profile.site_id,
-        });
-      }
-    }
+        }).eq('id', editingUser.id);
+        if (updateErr) throw new Error(updateErr.message);
+      } else {
+        if (!supabaseAdmin) {
+          throw new Error('Admin client not configured. Add VITE_SUPABASE_SERVICE_ROLE_KEY to .env');
+        }
 
-    setUserDialogOpen(false); setEditingUser(null);
-    setUserEmail(''); setUserFullName(''); setUserRole('crane_operator'); setUserPassword('');
-    setSubmitting(false);
-    fetchData();
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: userEmail,
+          password: userPassword,
+          email_confirm: true,
+          user_metadata: { full_name: userFullName, role: userRole },
+        });
+        if (authError) throw new Error(authError.message);
+
+        if (authData.user) {
+          const { error: profileErr } = await supabaseAdmin.from('profiles').update({
+            role: userRole,
+            company_id: profile.company_id,
+            site_id: profile.site_id,
+            full_name: userFullName,
+          }).eq('user_id', authData.user.id);
+          if (profileErr) throw new Error(profileErr.message);
+        }
+      }
+
+      setUserDialogOpen(false);
+      setEditingUser(null);
+      setUserEmail(''); setUserFullName(''); setUserRole('crane_operator'); setUserPassword('');
+      fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save user');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleCreateSub = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.site_id || !profile?.company_id) return;
+  const handleCreateSub = async () => {
+    if (!profile?.site_id || !profile?.company_id) {
+      setError('Your profile is missing site or company assignment');
+      return;
+    }
+    if (!editingSub && (!subCompanyName.trim() || !subContactName.trim() || !subContactEmail.trim() || !subPassword.trim())) {
+      setError('All fields are required');
+      return;
+    }
+    if (editingSub && (!subCompanyName.trim() || !subContactName.trim())) {
+      setError('Company name and contact name are required');
+      return;
+    }
+    setError('');
     setSubmitting(true);
 
-    if (editingSub) {
-      await supabase.from('subcontractors').update({
-        company_name: subCompanyName,
-        contact_name: subContactName,
-        contact_email: subContactEmail,
-      }).eq('id', editingSub.id);
-    } else {
-      // Create subcontractor entry
-      await supabase.from('subcontractors').insert({
-        site_id: profile.site_id,
-        company_name: subCompanyName,
-        contact_name: subContactName,
-        contact_email: subContactEmail,
-      });
-
-      // Create auth user for subcontractor
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: subContactEmail,
-        password: subPassword,
-        options: { data: { full_name: subContactName, role: 'subcontractor' } }
-      });
-      if (!authError && authData.user) {
-        await supabase.from('profiles').insert({
-          user_id: authData.user.id,
-          email: subContactEmail,
-          full_name: subContactName,
-          role: 'subcontractor',
-          company_id: profile.company_id,
+    try {
+      if (editingSub) {
+        const { error: updateErr } = await supabase.from('subcontractors').update({
+          company_name: subCompanyName,
+          contact_name: subContactName,
+          contact_email: subContactEmail,
+        }).eq('id', editingSub.id);
+        if (updateErr) throw new Error(updateErr.message);
+      } else {
+        const { error: subErr } = await supabase.from('subcontractors').insert({
           site_id: profile.site_id,
-          subcontractor_company_name: subCompanyName,
+          company_name: subCompanyName,
+          contact_name: subContactName,
+          contact_email: subContactEmail,
         });
-      }
-    }
+        if (subErr) throw new Error(subErr.message);
 
-    setSubDialogOpen(false); setEditingSub(null);
-    setSubCompanyName(''); setSubContactName(''); setSubContactEmail(''); setSubPassword('');
-    setSubmitting(false);
-    fetchData();
+        if (supabaseAdmin) {
+          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email: subContactEmail,
+            password: subPassword,
+            email_confirm: true,
+            user_metadata: { full_name: subContactName, role: 'subcontractor' },
+          });
+          if (authError) throw new Error(authError.message);
+
+          if (authData.user) {
+            await supabaseAdmin.from('profiles').update({
+              role: 'subcontractor',
+              company_id: profile.company_id,
+              site_id: profile.site_id,
+              subcontractor_company_name: subCompanyName,
+              full_name: subContactName,
+            }).eq('user_id', authData.user.id);
+          }
+        }
+      }
+
+      setSubDialogOpen(false);
+      setEditingSub(null);
+      setSubCompanyName(''); setSubContactName(''); setSubContactEmail(''); setSubPassword('');
+      fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save subcontractor');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -177,6 +221,14 @@ export function SiteUsersPage() {
         <p className="text-sm text-muted-foreground mt-1">Manage personnel and subcontractors</p>
       </div>
 
+      {error && !userDialogOpen && !subDialogOpen && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm animate-slide-down">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+          <button onClick={() => setError('')} className="ml-auto text-xs underline cursor-pointer">Dismiss</button>
+        </div>
+      )}
+
       <Tabs defaultValue="users" className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="users" className="flex-1 sm:flex-initial">Site Users</TabsTrigger>
@@ -185,55 +237,67 @@ export function SiteUsersPage() {
 
         <TabsContent value="users" className="space-y-4">
           <div className="flex justify-end">
-            <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => { setEditingUser(null); setUserEmail(''); setUserFullName(''); setUserRole('crane_operator'); setUserPassword(''); }}>
-                  <Plus className="h-4 w-4 mr-2" />Add User
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editingUser ? 'Edit User' : 'Add Site User'}</DialogTitle>
-                  <DialogDescription>
-                    {editingUser ? 'Update user details.' : 'Create a new site user account.'}
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleCreateUser} className="space-y-4">
-                  {!editingUser && (
-                    <div className="space-y-2">
-                      <Label>Email</Label>
-                      <Input type="email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="user@example.com" required />
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <Label>Full Name</Label>
-                    <Input value={userFullName} onChange={(e) => setUserFullName(e.target.value)} placeholder="John Smith" required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Select value={userRole} onValueChange={(v) => setUserRole(v as UserRole)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {siteRoles.map((r) => (
-                          <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {!editingUser && (
-                    <div className="space-y-2">
-                      <Label>Password</Label>
-                      <Input type="password" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} placeholder="Min 6 characters" required minLength={6} />
-                    </div>
-                  )}
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
-                    <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : editingUser ? 'Update' : 'Create'}</Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => {
+              setEditingUser(null); setUserEmail(''); setUserFullName('');
+              setUserRole('crane_operator'); setUserPassword(''); setError('');
+              setUserDialogOpen(true);
+            }}>
+              <Plus className="h-4 w-4 mr-2" />Add User
+            </Button>
           </div>
+
+          {/* Add User Dialog */}
+          <Dialog open={userDialogOpen} onOpenChange={(open) => { setUserDialogOpen(open); if (!open) setError(''); }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingUser ? 'Edit User' : 'Add Site User'}</DialogTitle>
+                <DialogDescription>
+                  {editingUser ? 'Update user details.' : 'Create a new site user account.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {error && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {error}
+                  </div>
+                )}
+                {!editingUser && (
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input type="email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="user@example.com" />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Full Name</Label>
+                  <Input value={userFullName} onChange={(e) => setUserFullName(e.target.value)} placeholder="John Smith" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <Select value={userRole} onValueChange={(v) => setUserRole(v as UserRole)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {siteRoles.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!editingUser && (
+                  <div className="space-y-2">
+                    <Label>Password</Label>
+                    <Input type="password" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} placeholder="Min 6 characters" />
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
+                  <Button type="button" disabled={submitting} onClick={handleCreateUser}>
+                    {submitting ? 'Saving...' : editingUser ? 'Update' : 'Create'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -264,7 +328,7 @@ export function SiteUsersPage() {
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingUser(u); setUserFullName(u.full_name); setUserRole(u.role); setUserDialogOpen(true);
+                        setEditingUser(u); setUserFullName(u.full_name); setUserRole(u.role); setError(''); setUserDialogOpen(true);
                       }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -281,46 +345,58 @@ export function SiteUsersPage() {
 
         <TabsContent value="subcontractors" className="space-y-4">
           <div className="flex justify-end">
-            <Dialog open={subDialogOpen} onOpenChange={setSubDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => { setEditingSub(null); setSubCompanyName(''); setSubContactName(''); setSubContactEmail(''); setSubPassword(''); }}>
-                  <Plus className="h-4 w-4 mr-2" />Add Subcontractor
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editingSub ? 'Edit Subcontractor' : 'Add Subcontractor'}</DialogTitle>
-                  <DialogDescription>
-                    {editingSub ? 'Update subcontractor details.' : 'Register a new subcontractor for this site.'}
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleCreateSub} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Company Name</Label>
-                    <Input value={subCompanyName} onChange={(e) => setSubCompanyName(e.target.value)} placeholder="Subcontractor Co. Ltd" required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Contact Name</Label>
-                    <Input value={subContactName} onChange={(e) => setSubContactName(e.target.value)} placeholder="Contact person" required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Contact Email</Label>
-                    <Input type="email" value={subContactEmail} onChange={(e) => setSubContactEmail(e.target.value)} placeholder="contact@sub.com" required disabled={!!editingSub} />
-                  </div>
-                  {!editingSub && (
-                    <div className="space-y-2">
-                      <Label>Password</Label>
-                      <Input type="password" value={subPassword} onChange={(e) => setSubPassword(e.target.value)} placeholder="Min 6 characters" required minLength={6} />
-                    </div>
-                  )}
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setSubDialogOpen(false)}>Cancel</Button>
-                    <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : editingSub ? 'Update' : 'Create'}</Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => {
+              setEditingSub(null); setSubCompanyName(''); setSubContactName('');
+              setSubContactEmail(''); setSubPassword(''); setError('');
+              setSubDialogOpen(true);
+            }}>
+              <Plus className="h-4 w-4 mr-2" />Add Subcontractor
+            </Button>
           </div>
+
+          {/* Add Subcontractor Dialog */}
+          <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setError(''); }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingSub ? 'Edit Subcontractor' : 'Add Subcontractor'}</DialogTitle>
+                <DialogDescription>
+                  {editingSub ? 'Update subcontractor details.' : 'Register a new subcontractor for this site.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {error && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {error}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Company Name</Label>
+                  <Input value={subCompanyName} onChange={(e) => setSubCompanyName(e.target.value)} placeholder="Subcontractor Co. Ltd" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact Name</Label>
+                  <Input value={subContactName} onChange={(e) => setSubContactName(e.target.value)} placeholder="Contact person" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact Email</Label>
+                  <Input type="email" value={subContactEmail} onChange={(e) => setSubContactEmail(e.target.value)} placeholder="contact@sub.com" disabled={!!editingSub} />
+                </div>
+                {!editingSub && (
+                  <div className="space-y-2">
+                    <Label>Password</Label>
+                    <Input type="password" value={subPassword} onChange={(e) => setSubPassword(e.target.value)} placeholder="Min 6 characters" />
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setSubDialogOpen(false)}>Cancel</Button>
+                  <Button type="button" disabled={submitting} onClick={handleCreateSub}>
+                    {submitting ? 'Saving...' : editingSub ? 'Update' : 'Create'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -350,7 +426,8 @@ export function SiteUsersPage() {
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingSub(sub); setSubCompanyName(sub.company_name); setSubContactName(sub.contact_name); setSubContactEmail(sub.contact_email); setSubDialogOpen(true);
+                        setEditingSub(sub); setSubCompanyName(sub.company_name); setSubContactName(sub.contact_name);
+                        setSubContactEmail(sub.contact_email); setError(''); setSubDialogOpen(true);
                       }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
