@@ -123,3 +123,48 @@ export interface CancellationLog {
   canceller?: Profile;
   crane?: Crane;
 }
+
+export interface DailyBriefing {
+  id: string;
+  site_id: string;
+  date: string;
+  created_by: string;
+  attendees: Array<{ role: string; name: string; company: string }>;
+  wind_speed: string;
+  gust_speed: string;
+  weather_conditions: string;
+  weather_last_updated: string;
+  first_aider_name: string;
+  site_location: string;
+  muster_point_location: string;
+  site_changes: string;
+  any_other_business: string;
+  lifting_schedule: string;
+  images: string[];
+  checklist_crane_responsible: boolean;
+  checklist_activities_planned: boolean;
+  checklist_deliveries_scheduled: boolean;
+  checklist_environmental_changes: boolean;
+  checklist_pre_use_checks: boolean;
+  checklist_safety_first: boolean;
+  checklist_crane_secured: boolean;
+  checklist_whistles_checked: boolean;
+  checklist_radio_check: boolean;
+  appointed_person_name: string;
+  lifting_supervisor_name: string;
+  supervisor_signature_url: string;
+  created_at: string;
+  updated_at: string;
+  signatures?: BriefingSignature[];
+}
+
+export interface BriefingSignature {
+  id: string;
+  briefing_id: string;
+  user_id: string;
+  name: string;
+  company: string;
+  role: string;
+  signature_image_url: string;
+  signed_at: string;
+}

@@ -215,3 +215,86 @@ $$ language plpgsql security definer;
 create or replace trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ============================================
+-- DAILY BRIEFINGS
+-- ============================================
+
+create table public.daily_briefings (
+  id uuid default uuid_generate_v4() primary key,
+  site_id uuid references public.sites(id) on delete cascade not null,
+  date date not null default current_date,
+  created_by uuid references auth.users(id) not null,
+  
+  -- Attendees list (jsonb array of { role, name, company })
+  attendees jsonb not null default '[]'::jsonb,
+  
+  -- Weather (resets daily at 3PM)
+  wind_speed text default '',
+  gust_speed text default '',
+  weather_conditions text default '',
+  weather_last_updated timestamptz default now(),
+  
+  -- Site Details (persists)
+  first_aider_name text default '',
+  site_location text default '',
+  muster_point_location text default '',
+  
+  -- Changes (persists)
+  site_changes text default '',
+  
+  -- AOB (persists)
+  any_other_business text default '',
+  
+  -- Lifting Schedule (persists)
+  lifting_schedule text default '',
+  
+  -- Images (array of strings, persists)
+  images text[] default array[]::text[],
+  
+  -- Checklist (boolean fields)
+  checklist_crane_responsible boolean default false,
+  checklist_activities_planned boolean default false,
+  checklist_deliveries_scheduled boolean default false,
+  checklist_environmental_changes boolean default false,
+  checklist_pre_use_checks boolean default false,
+  checklist_safety_first boolean default false,
+  checklist_crane_secured boolean default false,
+  checklist_whistles_checked boolean default false,
+  checklist_radio_check boolean default false,
+  
+  -- Sign off
+  appointed_person_name text default '',
+  lifting_supervisor_name text default '',
+  supervisor_signature_url text,
+  
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null,
+
+  unique(site_id, date)
+);
+
+create table public.briefing_signatures (
+  id uuid default uuid_generate_v4() primary key,
+  briefing_id uuid references public.daily_briefings(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  name text not null,
+  company text not null,
+  role text not null,
+  signature_image_url text not null,
+  signed_at timestamptz default now() not null,
+
+  unique(briefing_id, user_id)
+);
+
+create index idx_daily_briefings_site_date on public.daily_briefings(site_id, date);
+create index idx_briefing_signatures_briefing on public.briefing_signatures(briefing_id);
+
+alter table public.daily_briefings enable row level security;
+alter table public.briefing_signatures enable row level security;
+
+create policy "Site users read daily_briefings" on public.daily_briefings for select using (site_id = public.get_user_site_id());
+create policy "AP and CS manage daily_briefings" on public.daily_briefings for all using (site_id = public.get_user_site_id() and public.get_user_role() in ('appointed_person', 'crane_supervisor'));
+
+create policy "Site users read signatures" on public.briefing_signatures for select using (exists (select 1 from public.daily_briefings db where db.id = briefing_id and db.site_id = public.get_user_site_id()));
+create policy "Users manage own signatures" on public.briefing_signatures for all using (user_id = auth.uid());

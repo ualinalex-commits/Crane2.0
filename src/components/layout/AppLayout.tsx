@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Building2, MapPin, Construction, ClipboardList, Calendar, Users, LogOut,
-  ChevronDown, Shield, UserCircle, LayoutDashboard, Bell,
+  ChevronDown, Shield, UserCircle, LayoutDashboard, Bell, FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -63,6 +63,12 @@ const navItems: NavItem[] = [
     href: '/schedule',
     icon: <Calendar className="h-5 w-5" />,
     roles: ['appointed_person', 'crane_supervisor', 'crane_operator', 'slinger_signaller', 'subcontractor'],
+  },
+  {
+    label: 'Daily Briefing',
+    href: '/briefing',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['admin', 'company_admin', 'appointed_person', 'crane_supervisor', 'crane_operator', 'slinger_signaller', 'subcontractor'],
   },
 ];
 
