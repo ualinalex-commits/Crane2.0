@@ -169,28 +169,37 @@ export default function LiveDashboard() {
   const siteName = (profile?.site as any)?.name || 'All Sites';
 
   return (
-    <div style={{ background: BG, minHeight: 'calc(100% + 2rem)', color: TEXT_PRIMARY, fontFamily: "'Inter', system-ui, sans-serif", margin: '-1rem -1rem -1rem -1rem', padding: 0 }}>
+    <>
+      <style>{`
+        .ld-root { background:${BG}; min-height:calc(100% + 2rem); color:${TEXT_PRIMARY}; font-family:'Inter',system-ui,sans-serif; margin:-1rem; padding:0; }
+        .ld-header { background:${HEADER_BG}; border-bottom:1px solid ${CARD_BORDER}; padding:12px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+        .ld-grid { padding:20px 24px; display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:start; }
+        .ld-title-sub { color:${TEXT_MUTED}; font-size:13px; font-weight:400; }
+        @media (max-width:1024px) {
+          .ld-grid { grid-template-columns:1fr 1fr; }
+        }
+        @media (max-width:640px) {
+          .ld-root { margin:-1rem; }
+          .ld-header { padding:10px 14px; gap:10px; }
+          .ld-grid { grid-template-columns:1fr; padding:12px 14px; gap:14px; }
+          .ld-title-sub { display:none; }
+          .ld-site-filter { display:none !important; }
+        }
+      `}</style>
+      <div className="ld-root">
       {/* ─── HEADER BAR ──────────────────────────────────────────────────── */}
-      <div style={{
-        background: HEADER_BG,
-        borderBottom: `1px solid ${CARD_BORDER}`,
-        padding: '12px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        flexWrap: 'wrap',
-      }}>
+      <div className="ld-header">
         {/* Title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 'auto' }}>
           <Zap style={{ color: GOLD, width: 20, height: 20 }} />
           <span style={{ color: GOLD, fontWeight: 700, fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
             Lifting Ops
           </span>
-          <span style={{ color: TEXT_MUTED, fontSize: 13, fontWeight: 400 }}>— Live Dashboard</span>
+          <span className="ld-title-sub">— Live Dashboard</span>
         </div>
 
         {/* Site filter */}
-        <div style={{
+        <div className="ld-site-filter" style={{
           background: CARD_BG,
           border: `1px solid ${CARD_BORDER}`,
           borderRadius: 8,
@@ -207,7 +216,7 @@ export default function LiveDashboard() {
         </div>
 
         {/* Status badges */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <StatusBadge label="Working" count={workingCount} color={GREEN} />
           <StatusBadge label="Idle" count={idleCount} color={GREY} />
           <StatusBadge label="Pending" count={pendingCount} color={AMBER} />
@@ -221,7 +230,7 @@ export default function LiveDashboard() {
       </div>
 
       {/* ─── MAIN GRID ───────────────────────────────────────────────────── */}
-      <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div className="ld-grid">
 
         {/* ═══ LEFT COLUMN ═══ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -566,6 +575,7 @@ export default function LiveDashboard() {
         <span>Last updated: {lastRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
       </div>
     </div>
+    </>
   );
 }
 
