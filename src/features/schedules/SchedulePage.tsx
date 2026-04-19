@@ -145,7 +145,7 @@ export function SchedulePage() {
       supabase.from('subcontractors').select('*').eq('site_id', profile.site_id).order('company_name'),
       supabase
         .from('crane_bookings')
-        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles!crane_bookings_created_by_fkey(full_name, role)')
+        .select('*, crane:cranes(*), subcontractor:subcontractors(*)')
         .eq('site_id', profile.site_id)
         .order('job_date_start'),
     ]);

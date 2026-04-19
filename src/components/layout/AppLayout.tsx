@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import {
   Building2, MapPin, Construction, ClipboardList, Calendar, Users, LogOut,
-  ChevronDown, Shield, UserCircle, LayoutDashboard, Bell, ClipboardCheck,
+  ChevronDown, Shield, UserCircle, LayoutDashboard, Bell,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -65,12 +64,6 @@ const navItems: NavItem[] = [
     icon: <Calendar className="h-5 w-5" />,
     roles: ['appointed_person', 'crane_supervisor', 'crane_operator', 'slinger_signaller', 'subcontractor'],
   },
-  {
-    label: 'Bookings',
-    href: '/bookings',
-    icon: <ClipboardCheck className="h-5 w-5" />,
-    roles: ['appointed_person'],
-  },
 ];
 
 function getRoleLabel(role: UserRole): string {
@@ -96,22 +89,7 @@ function getGreeting(): string {
 export function AppLayout() {
   const { profile, signOut } = useAuth();
   const location = useLocation();
-  const [pendingCount, setPendingCount] = useState(0);
 
-  useEffect(() => {
-    if (!profile?.site_id || profile.role !== 'appointed_person') return;
-    const fetch = async () => {
-      const { count } = await supabase
-        .from('crane_bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('site_id', profile.site_id)
-        .eq('status', 'pending');
-      setPendingCount(count ?? 0);
-    };
-    fetch();
-    const interval = setInterval(fetch, 60_000);
-    return () => clearInterval(interval);
-  }, [profile?.site_id, profile?.role]);
 
   if (!profile) return null;
 
@@ -148,7 +126,6 @@ export function AppLayout() {
         {/* Nav */}
         <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
           {filteredNavItems.map((item) => {
-            const badge = item.href === '/bookings' ? pendingCount : 0;
             return (
               <Link
                 key={item.href}
@@ -162,11 +139,6 @@ export function AppLayout() {
               >
                 {item.icon}
                 <span className="flex-1">{item.label}</span>
-                {badge > 0 && (
-                  <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
-                    {badge > 99 ? '99+' : badge}
-                  </span>
-                )}
               </Link>
             );
           })}
@@ -280,7 +252,6 @@ export function AppLayout() {
         <div className="flex items-center justify-around px-1 py-2">
           {filteredNavItems.map((item) => {
             const active = isActive(item);
-            const badge = item.href === '/bookings' ? pendingCount : 0;
             return (
               <Link
                 key={item.href}
@@ -295,11 +266,6 @@ export function AppLayout() {
                   active ? 'bg-primary/15' : ''
                 )}>
                   {item.icon}
-                  {badge > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5">
-                      {badge > 9 ? '9+' : badge}
-                    </span>
-                  )}
                 </span>
                 <span className="text-[10px] font-medium truncate max-w-[56px] text-center leading-tight">
                   {item.label}
