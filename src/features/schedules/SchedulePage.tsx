@@ -56,15 +56,13 @@ function currentTimeTop(): number {
   return ((now.getHours() * 60 + now.getMinutes() - HOUR_START * 60) / 30) * SLOT_H;
 }
 
-// Half-hour slot labels
 const SLOT_LABELS = Array.from({ length: TOTAL_SLOTS }, (_, i) =>
   fromMins(HOUR_START * 60 + i * 30)
 );
 
-// Colour palette per booking status
 const STATUS_COLOR: Record<BookingStatus, { bg: string; border: string; text: string; left: string; dot: string }> = {
-  approved: { bg: '#f0fdf4', border: '#86efac', text: '#14532d', left: '#22c55e', dot: '#22c55e' },
-  pending:  { bg: '#fffbeb', border: '#fcd34d', text: '#78350f', left: '#f59e0b', dot: '#f59e0b' },
+  approved:  { bg: '#f0fdf4', border: '#86efac', text: '#14532d', left: '#22c55e', dot: '#22c55e' },
+  pending:   { bg: '#fffbeb', border: '#fcd34d', text: '#78350f', left: '#f59e0b', dot: '#f59e0b' },
   cancelled: { bg: '#fef2f2', border: '#fca5a5', text: '#7f1d1d', left: '#ef4444', dot: '#ef4444' },
 };
 
@@ -110,6 +108,7 @@ export function SchedulePage() {
   const [bookings, setBookings] = useState<CraneBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [activeTab, setActiveTab] = useState<'approved' | 'pending'>('approved');
 
   // New booking form state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -129,7 +128,6 @@ export function SchedulePage() {
   // Current time line
   const [timeTop, setTimeTop] = useState(currentTimeTop());
 
-  // Calendar scroll container height (fills viewport below the nav bar)
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollH, setScrollH] = useState(500);
 
@@ -145,12 +143,13 @@ export function SchedulePage() {
     const [cranesRes, subsRes, bookingsRes] = await Promise.all([
       supabase.from('cranes').select('*').eq('site_id', profile.site_id).order('name'),
       supabase.from('subcontractors').select('*').eq('site_id', profile.site_id).order('company_name'),
-      supabase.from('crane_bookings')
-        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles(full_name, role)')
+      supabase
+        .from('crane_bookings')
+        .select('*, crane:cranes(*), subcontractor:subcontractors(*), creator:profiles!crane_bookings_created_by_fkey(full_name, role)')
         .eq('site_id', profile.site_id)
         .order('job_date_start'),
     ]);
-    console.log('[SchedulePage] raw bookings response:', bookingsRes.data, '| error:', bookingsRes.error);
+    console.log('bookings fetched:', bookingsRes.data, '| error:', bookingsRes.error);
     setCranes(cranesRes.data || []);
     setSubcontractors(subsRes.data || []);
     setBookings((bookingsRes.data as any) || []);
@@ -172,13 +171,11 @@ export function SchedulePage() {
     return () => window.removeEventListener('resize', update);
   }, [loading]);
 
-  // Update red time line every minute
   useEffect(() => {
     const id = setInterval(() => setTimeTop(currentTimeTop()), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  // Auto-scroll to current time when viewing today
   useEffect(() => {
     if (!scrollRef.current || !isToday) return;
     const t = setTimeout(() => {
@@ -189,15 +186,18 @@ export function SchedulePage() {
   }, [loading, isToday]);
 
   // ── Derived data ──────────────────────────────────────────────────────────
-  const dayBookings = useMemo(() => {
+  const approvedDayBookings = useMemo(() => {
     const dayStr = format(selectedDate, 'yyyy-MM-dd');
-    const filtered = bookings.filter(b => {
-      if (b.status === 'cancelled') return false;
-      return b.job_date_start <= dayStr && b.job_date_end >= dayStr;
-    });
-    console.log('[SchedulePage] total bookings:', bookings.length, '| visible for', dayStr, ':', filtered.length, filtered);
-    return filtered;
+    return bookings.filter(b =>
+      b.status === 'approved' &&
+      b.job_date_start <= dayStr && b.job_date_end >= dayStr
+    );
   }, [bookings, selectedDate]);
+
+  const pendingBookings = useMemo(() =>
+    bookings.filter(b => b.status === 'pending'),
+    [bookings]
+  );
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const checkOverlaps = (craneId: string, dStart: string, dEnd: string, tS: string, tE: string) => {
@@ -297,47 +297,47 @@ export function SchedulePage() {
   const gridMinW = TIME_W + cranes.length * COL_W;
 
   return (
-    // Break out of the main padding so the calendar fills edge-to-edge
     <div className="flex flex-col -mx-4 -mt-4 -mb-24 lg:-mx-6 lg:-mt-6 lg:-mb-6 animate-fade-in">
 
-      {/* ── Date navigation bar ─────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background flex-wrap">
-        <Button
-          variant="ghost" size="sm"
-          className="h-8 w-8 p-0 shrink-0"
-          onClick={() => setSelectedDate(d => addDays(d, -1))}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-
-        <div className="flex-1 text-center min-w-0">
-          <p className={cn('text-sm font-semibold truncate', isToday && 'text-primary')}>
-            {format(selectedDate, 'EEEE, d MMMM yyyy')}
-          </p>
-        </div>
-
-        <Button
-          variant="ghost" size="sm"
-          className="h-8 w-8 p-0 shrink-0"
-          onClick={() => setSelectedDate(d => addDays(d, 1))}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-
-        {!isToday && (
-          <Button
-            variant="outline" size="sm"
-            className="h-7 text-xs px-2.5 shrink-0"
-            onClick={() => setSelectedDate(new Date())}
+      {/* ── Tab toggle ──────────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background">
+        <div className="flex rounded-lg overflow-hidden border border-border">
+          <button
+            onClick={() => setActiveTab('approved')}
+            className={cn(
+              'px-4 py-1.5 text-sm font-semibold transition-colors',
+              activeTab === 'approved'
+                ? 'bg-orange-500 text-white'
+                : 'bg-background text-muted-foreground hover:text-foreground'
+            )}
           >
-            Today
-          </Button>
-        )}
+            Approved
+          </button>
+          <button
+            onClick={() => setActiveTab('pending')}
+            className={cn(
+              'px-4 py-1.5 text-sm font-semibold transition-colors flex items-center gap-1.5 border-l border-border',
+              activeTab === 'pending'
+                ? 'bg-orange-500 text-white'
+                : 'bg-background text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Pending
+            {pendingBookings.length > 0 && (
+              <span className={cn(
+                'inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold',
+                activeTab === 'pending' ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-600'
+              )}>
+                {pendingBookings.length}
+              </span>
+            )}
+          </button>
+        </div>
 
         {canBook && (
           <Button
             size="sm"
-            className="h-7 text-xs px-3 shrink-0"
+            className="h-7 text-xs px-3 ml-auto shrink-0"
             onClick={() => openNewBooking()}
           >
             <Plus className="h-3 w-3 mr-1" />New
@@ -345,192 +345,236 @@ export function SchedulePage() {
         )}
       </div>
 
-      {/* ── Calendar scroll container ────────────────────────────────────────── */}
-      <div
-        ref={scrollRef}
-        className="overflow-auto"
-        style={{ height: scrollH }}
-      >
-        {/* Wide inner grid – wider than viewport when many cranes */}
-        <div style={{ minWidth: gridMinW }}>
-
-          {/* Crane header row – sticky top */}
-          <div
-            className="sticky top-0 z-20 flex bg-card border-b border-border shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
-            style={{ minWidth: gridMinW }}
-          >
-            {/* Corner */}
-            <div
-              className="shrink-0 border-r border-border bg-card"
-              style={{ width: TIME_W }}
-            />
-            {/* One header per crane */}
-            {cranes.map(crane => {
-              const todayBks = dayBookings.filter(b => b.crane_id === crane.id);
-              const dotColor = todayBks.some(b => b.status === 'approved')
-                ? '#22c55e'
-                : todayBks.some(b => b.status === 'pending')
-                  ? '#f59e0b'
-                  : '#d1d5db';
-              return (
-                <div
-                  key={crane.id}
-                  className="shrink-0 border-r border-border px-2.5 py-2"
-                  style={{ width: COL_W }}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: dotColor }}
-                    />
-                    <span className="text-xs font-semibold text-foreground truncate leading-tight">
-                      {crane.name}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground truncate mt-0.5 pl-3.5">
-                    {crane.model || crane.capacity || ''}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Timeline body */}
-          <div className="relative flex" style={{ height: TOTAL_H }}>
-
-            {/* Time column – sticky left */}
-            <div
-              className="sticky left-0 z-10 shrink-0 bg-background border-r border-border"
-              style={{ width: TIME_W }}
+      {/* ── Approved tab: Google Calendar timeline ───────────────────────────── */}
+      {activeTab === 'approved' && (
+        <>
+          {/* Date navigation */}
+          <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border bg-background">
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 w-8 p-0 shrink-0"
+              onClick={() => setSelectedDate(d => addDays(d, -1))}
             >
-              {SLOT_LABELS.map((label, i) => (
-                <div
-                  key={label}
-                  className="absolute inset-x-0 flex items-start justify-end pr-2"
-                  style={{ top: i * SLOT_H, height: SLOT_H }}
-                >
-                  {i % 2 === 0 && (
-                    <span className="text-[10px] text-muted-foreground tabular-nums leading-none select-none -mt-1.5">
-                      {label}
-                    </span>
-                  )}
-                </div>
-              ))}
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            <div className="flex-1 text-center min-w-0">
+              <p className={cn('text-sm font-semibold truncate', isToday && 'text-primary')}>
+                {format(selectedDate, 'EEEE, d MMMM yyyy')}
+              </p>
             </div>
 
-            {/* One column per crane */}
-            {cranes.map(crane => {
-              const craneBks = dayBookings.filter(b => b.crane_id === crane.id);
-              const laid = layoutBookings(craneBks);
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 w-8 p-0 shrink-0"
+              onClick={() => setSelectedDate(d => addDays(d, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
 
-              return (
+            {!isToday && (
+              <Button
+                variant="outline" size="sm"
+                className="h-7 text-xs px-2.5 shrink-0"
+                onClick={() => setSelectedDate(new Date())}
+              >
+                Today
+              </Button>
+            )}
+          </div>
+
+          {/* Calendar scroll container */}
+          <div ref={scrollRef} className="overflow-auto" style={{ height: scrollH }}>
+            <div style={{ minWidth: gridMinW }}>
+
+              {/* Crane header row */}
+              <div
+                className="sticky top-0 z-20 flex bg-card border-b border-border shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+                style={{ minWidth: gridMinW }}
+              >
+                <div className="shrink-0 border-r border-border bg-card" style={{ width: TIME_W }} />
+                {cranes.map(crane => {
+                  const craneBks = approvedDayBookings.filter(b => b.crane_id === crane.id);
+                  const dotColor = craneBks.length > 0 ? '#22c55e' : '#d1d5db';
+                  return (
+                    <div
+                      key={crane.id}
+                      className="shrink-0 border-r border-border px-2.5 py-2"
+                      style={{ width: COL_W }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+                        <span className="text-xs font-semibold text-foreground truncate leading-tight">
+                          {crane.name}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5 pl-3.5">
+                        {crane.model || crane.capacity || ''}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Timeline body */}
+              <div className="relative flex" style={{ height: TOTAL_H }}>
+
+                {/* Time column */}
                 <div
-                  key={crane.id}
-                  className="relative shrink-0 border-r border-border bg-card"
-                  style={{ width: COL_W }}
+                  className="sticky left-0 z-10 shrink-0 bg-background border-r border-border"
+                  style={{ width: TIME_W }}
                 >
-                  {/* Grid lines + click zones */}
                   {SLOT_LABELS.map((label, i) => (
                     <div
                       key={label}
-                      className={cn(
-                        'absolute inset-x-0 border-b',
-                        canBook && 'cursor-pointer hover:bg-primary/[0.04] transition-colors',
-                        i % 2 === 0 ? 'border-border/40' : 'border-border/15',
-                      )}
+                      className="absolute inset-x-0 flex items-start justify-end pr-2"
                       style={{ top: i * SLOT_H, height: SLOT_H }}
-                      onClick={() => canBook && openNewBooking(crane.id, label)}
-                    />
+                    >
+                      {i % 2 === 0 && (
+                        <span className="text-[10px] text-muted-foreground tabular-nums leading-none select-none -mt-1.5">
+                          {label}
+                        </span>
+                      )}
+                    </div>
                   ))}
-
-                  {/* Booking blocks */}
-                  {laid.map(({ b, col, cols }) => {
-                    const top = bookingTop(b.start_time);
-                    const height = Math.max(22, bookingHeight(b.start_time, b.end_time));
-                    const c = STATUS_COLOR[b.status as BookingStatus] ?? STATUS_COLOR.pending;
-                    const bw = (COL_W - 2) / cols;
-                    const compact = height < 38;
-
-                    return (
-                      <div
-                        key={b.id}
-                        className="absolute rounded-lg overflow-hidden cursor-pointer z-10 hover:shadow-md hover:z-20 transition-all duration-150"
-                        style={{
-                          top: top + 2,
-                          height: height - 4,
-                          left: col * bw + 2,
-                          width: bw - 4,
-                          backgroundColor: c.bg,
-                          border: `1px solid ${c.border}`,
-                        }}
-                        onClick={e => { e.stopPropagation(); setOverlayBooking(b); }}
-                      >
-                        {/* Coloured left stripe */}
-                        <div
-                          className="absolute inset-y-0 left-0 w-1 rounded-l-lg"
-                          style={{ backgroundColor: c.left }}
-                        />
-                        <div className="h-full flex flex-col pl-2.5 pr-1 py-1 overflow-hidden gap-0.5">
-                          <div className="flex items-center gap-1 min-w-0">
-                            <span
-                              className="w-1.5 h-1.5 rounded-full shrink-0"
-                              style={{ backgroundColor: c.dot }}
-                            />
-                            <span
-                              className="text-[10px] font-semibold truncate leading-tight"
-                              style={{ color: c.text }}
-                            >
-                              {(b.subcontractor as any)?.company_name
-                                || (b.creator as any)?.full_name
-                                || '—'}
-                            </span>
-                          </div>
-                          {!compact && (
-                            <span
-                              className="text-[9px] tabular-nums leading-none pl-2.5"
-                              style={{ color: c.text, opacity: 0.7 }}
-                            >
-                              {b.start_time.slice(0, 5)}–{b.end_time.slice(0, 5)}
-                            </span>
-                          )}
-                          {height >= 56 && (
-                            <span
-                              className="text-[9px] leading-tight pl-2.5 line-clamp-2"
-                              style={{ color: c.text, opacity: 0.55 }}
-                            >
-                              {b.job_details}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
-              );
-            })}
 
-            {/* Current time indicator – today only */}
-            {isToday && timeTop >= 0 && timeTop <= TOTAL_H && (
-              <div
-                className="absolute z-30 pointer-events-none flex items-center"
-                style={{ top: timeTop, left: TIME_W, right: 0 }}
-              >
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 -ml-1.5 shadow-sm shadow-red-500/40" />
-                <div className="flex-1 border-t-2 border-red-500" />
-              </div>
-            )}
+                {/* One column per crane */}
+                {cranes.map(crane => {
+                  const craneBks = approvedDayBookings.filter(b => b.crane_id === crane.id);
+                  const laid = layoutBookings(craneBks);
 
-            {/* Empty state – no cranes */}
-            {cranes.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20 text-center px-6">
-                <Construction className="h-12 w-12 text-muted-foreground/30" />
-                <p className="text-sm font-medium text-muted-foreground">No cranes on this site</p>
-                <p className="text-xs text-muted-foreground/70">Ask your appointed person to add cranes.</p>
+                  return (
+                    <div
+                      key={crane.id}
+                      className="relative shrink-0 border-r border-border bg-card"
+                      style={{ width: COL_W }}
+                    >
+                      {/* Grid lines + click zones */}
+                      {SLOT_LABELS.map((label, i) => (
+                        <div
+                          key={label}
+                          className={cn(
+                            'absolute inset-x-0 border-b',
+                            canBook && 'cursor-pointer hover:bg-primary/[0.04] transition-colors',
+                            i % 2 === 0 ? 'border-border/40' : 'border-border/15',
+                          )}
+                          style={{ top: i * SLOT_H, height: SLOT_H }}
+                          onClick={() => canBook && openNewBooking(crane.id, label)}
+                        />
+                      ))}
+
+                      {/* Booking blocks */}
+                      {laid.map(({ b, col, cols }) => {
+                        const top = bookingTop(b.start_time);
+                        const height = Math.max(22, bookingHeight(b.start_time, b.end_time));
+                        const c = STATUS_COLOR[b.status as BookingStatus] ?? STATUS_COLOR.pending;
+                        const bw = (COL_W - 2) / cols;
+                        const compact = height < 38;
+
+                        return (
+                          <div
+                            key={b.id}
+                            className="absolute rounded-lg overflow-hidden cursor-pointer z-10 hover:shadow-md hover:z-20 transition-all duration-150"
+                            style={{
+                              top: top + 2,
+                              height: height - 4,
+                              left: col * bw + 2,
+                              width: bw - 4,
+                              backgroundColor: c.bg,
+                              border: `1px solid ${c.border}`,
+                            }}
+                            onClick={e => { e.stopPropagation(); setOverlayBooking(b); }}
+                          >
+                            <div
+                              className="absolute inset-y-0 left-0 w-1 rounded-l-lg"
+                              style={{ backgroundColor: c.left }}
+                            />
+                            <div className="h-full flex flex-col pl-2.5 pr-1 py-1 overflow-hidden gap-0.5">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: c.dot }}
+                                />
+                                <span
+                                  className="text-[10px] font-semibold truncate leading-tight"
+                                  style={{ color: c.text }}
+                                >
+                                  {(b.subcontractor as any)?.company_name
+                                    || (b.creator as any)?.full_name
+                                    || '—'}
+                                </span>
+                              </div>
+                              {!compact && (
+                                <span
+                                  className="text-[9px] tabular-nums leading-none pl-2.5"
+                                  style={{ color: c.text, opacity: 0.7 }}
+                                >
+                                  {b.start_time.slice(0, 5)}–{b.end_time.slice(0, 5)}
+                                </span>
+                              )}
+                              {height >= 56 && (
+                                <span
+                                  className="text-[9px] leading-tight pl-2.5 line-clamp-2"
+                                  style={{ color: c.text, opacity: 0.55 }}
+                                >
+                                  {b.job_details}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Current time indicator */}
+                {isToday && timeTop >= 0 && timeTop <= TOTAL_H && (
+                  <div
+                    className="absolute z-30 pointer-events-none flex items-center"
+                    style={{ top: timeTop, left: TIME_W, right: 0 }}
+                  >
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 -ml-1.5 shadow-sm shadow-red-500/40" />
+                    <div className="flex-1 border-t-2 border-red-500" />
+                  </div>
+                )}
+
+                {cranes.length === 0 && (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20 text-center px-6">
+                    <Construction className="h-12 w-12 text-muted-foreground/30" />
+                    <p className="text-sm font-medium text-muted-foreground">No cranes on this site</p>
+                    <p className="text-xs text-muted-foreground/70">Ask your appointed person to add cranes.</p>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
+        </>
+      )}
+
+      {/* ── Pending tab: booking request list ───────────────────────────────── */}
+      {activeTab === 'pending' && (
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          {pendingBookings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <CheckCircle2 className="h-12 w-12 text-muted-foreground/30" />
+              <p className="text-sm font-medium text-muted-foreground">No pending requests</p>
+              <p className="text-xs text-muted-foreground/70">All bookings are up to date.</p>
+            </div>
+          ) : (
+            pendingBookings.map(b => (
+              <PendingCard
+                key={b.id}
+                booking={b}
+                isAP={isAP}
+                onApprove={() => handleApprove(b.id)}
+                onCancel={() => handleCancel(b)}
+              />
+            ))
+          )}
         </div>
-      </div>
+      )}
 
       {/* ── New Booking Dialog ───────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={open => { if (!open) resetForm(); setDialogOpen(open); }}>
@@ -643,6 +687,97 @@ export function SchedulePage() {
   );
 }
 
+// ── Pending booking card ──────────────────────────────────────────────────────
+function PendingCard({
+  booking: b, isAP, onApprove, onCancel,
+}: {
+  booking: CraneBooking;
+  isAP: boolean;
+  onApprove: () => void;
+  onCancel: () => void;
+}) {
+  const crane   = b.crane        as any;
+  const sub     = b.subcontractor as any;
+  const creator = b.creator       as any;
+
+  const dateLabel = b.job_date_start === b.job_date_end
+    ? format(parseISO(b.job_date_start), 'd MMMM yyyy')
+    : `${format(parseISO(b.job_date_start), 'd MMM')} – ${format(parseISO(b.job_date_end), 'd MMM yyyy')}`;
+
+  return (
+    <div className="bg-white rounded-2xl border border-border shadow-sm p-4 space-y-3">
+      {/* Top row: crane name + amber badge */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Construction className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="font-bold text-foreground">{crane?.name || 'Crane'}</span>
+          {crane?.model && (
+            <span className="text-xs text-muted-foreground">{crane.model}</span>
+          )}
+        </div>
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5" />
+          Pending
+        </span>
+      </div>
+
+      {/* Details grid */}
+      <div className="space-y-1.5 text-sm">
+        <div className="flex items-start gap-2 text-muted-foreground">
+          <Clock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            {dateLabel} &middot; {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
+          </span>
+        </div>
+
+        {sub && (
+          <div className="flex items-start gap-2 text-muted-foreground">
+            <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{sub.company_name}{sub.contact_name ? ` · ${sub.contact_name}` : ''}</span>
+          </div>
+        )}
+
+        {creator && (
+          <div className="flex items-start gap-2 text-muted-foreground">
+            <User className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{creator.full_name}</span>
+          </div>
+        )}
+
+        {b.job_details && (
+          <div className="flex items-start gap-2 text-muted-foreground">
+            <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span className="leading-relaxed">{b.job_details}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Action buttons (AP only) */}
+      {isAP && (
+        <div className="flex gap-2 pt-1">
+          <Button
+            size="sm"
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+            onClick={onApprove}
+          >
+            <CheckCircle2 className="h-4 w-4 mr-1.5" />
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="flex-1"
+            onClick={onCancel}
+          >
+            <XCircle className="h-4 w-4 mr-1.5" />
+            Cancel
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Booking Detail Overlay ────────────────────────────────────────────────────
 function BookingOverlay({
   booking: b, isAP, isSub, userId, onClose, onApprove, onCancel,
@@ -667,35 +802,27 @@ function BookingOverlay({
     : `${durationMins}m`;
 
   const isOwnPending = isSub && b.created_by === userId && b.status === 'pending';
-
   const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
       />
-
-      {/* Panel */}
       <div
         className={cn(
           'fixed z-50 bg-card',
-          // Mobile: bottom sheet slides up from bottom
           'inset-x-0 bottom-0 rounded-t-3xl max-h-[88dvh] overflow-y-auto animate-slide-up',
-          // Desktop: centred modal fades in (slide-up conflicts with centering transforms)
           'lg:inset-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2',
           'lg:w-full lg:max-w-md lg:rounded-2xl lg:shadow-2xl lg:max-h-[85dvh] lg:overflow-y-auto',
           'lg:[animation:fadeIn_0.2s_ease-out]',
         )}
       >
-        {/* Drag handle (mobile only) */}
         <div className="lg:hidden flex justify-center pt-3 pb-0.5">
           <div className="w-10 h-1 rounded-full bg-border" />
         </div>
 
-        {/* Header */}
         <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-border">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -720,10 +847,7 @@ function BookingOverlay({
           </button>
         </div>
 
-        {/* Detail fields */}
         <div className="px-5 py-4 space-y-4">
-
-          {/* Date & time */}
           <section className="space-y-3">
             <DetailRow icon={<Clock className="h-4 w-4" />} label="Date">
               {b.job_date_start === b.job_date_end
@@ -732,9 +856,7 @@ function BookingOverlay({
               }
             </DetailRow>
             <DetailRow icon={<Clock className="h-4 w-4" />} label="Time">
-              <span>
-                {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
-              </span>
+              <span>{b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}</span>
               <span className="ml-2 inline-block text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground font-medium">
                 {durationStr}
               </span>
@@ -743,7 +865,6 @@ function BookingOverlay({
 
           <div className="border-t border-border" />
 
-          {/* People */}
           <section className="space-y-3">
             {sub && (
               <DetailRow icon={<Building2 className="h-4 w-4" />} label="Subcontractor">
@@ -765,14 +886,12 @@ function BookingOverlay({
 
           <div className="border-t border-border" />
 
-          {/* Job details */}
           <DetailRow icon={<FileText className="h-4 w-4" />} label="Job / Lift">
-            <p className="text-sm text-foreground leading-relaxed">{b.job_details}</p>
+            <p className="text-sm text-foreground leading-relaxed">{b.job_details || '—'}</p>
           </DetailRow>
 
           <div className="border-t border-border" />
 
-          {/* Created at */}
           <DetailRow icon={<Clock className="h-4 w-4" />} label="Booking created">
             <p className="text-sm text-muted-foreground">
               {format(parseISO(b.created_at), 'd MMM yyyy, HH:mm')}
@@ -780,7 +899,6 @@ function BookingOverlay({
           </DetailRow>
         </div>
 
-        {/* Action buttons */}
         <div className="px-5 pb-8 pt-1 flex gap-2 flex-wrap border-t border-border">
           {isAP && b.status === 'pending' && (
             <Button size="sm" variant="success" className="flex-1 min-w-[100px]" onClick={onApprove}>
@@ -806,7 +924,7 @@ function BookingOverlay({
   );
 }
 
-// ── Small helper row for the overlay ─────────────────────────────────────────
+// ── Detail row helper ─────────────────────────────────────────────────────────
 function DetailRow({
   icon, label, children,
 }: {
