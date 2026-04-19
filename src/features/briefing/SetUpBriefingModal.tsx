@@ -23,9 +23,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // Form State
-  const [attendees, setAttendees] = useState<Array<{ role: string; name: string; company: string }>>([]);
-  
   // Part 2 - Weather
   const [windSpeed, setWindSpeed] = useState('');
   const [gustSpeed, setGustSpeed] = useState('');
@@ -69,7 +66,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
     const source = existingBriefing || pastBriefing;
     
     if (source) {
-      setAttendees(source.attendees || []);
       setFirstAiderName(source.first_aider_name || '');
       setSiteLocation(source.site_location || '');
       setMusterPointLocation(source.muster_point_location || '');
@@ -118,7 +114,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
       }
     } else {
       // Default empty state
-      setAttendees([]);
       setWindSpeed('');
       setGustSpeed('');
       setWeatherConditions('');
@@ -145,20 +140,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
     }
   }, [isOpen, existingBriefing, pastBriefing, profile]);
 
-  const handleAddAttendee = () => {
-    setAttendees([...attendees, { role: '', name: '', company: '' }]);
-  };
-
-  const handleRemoveAttendee = (index: number) => {
-    setAttendees(attendees.filter((_, i) => i !== index));
-  };
-
-  const updateAttendee = (index: number, field: string, value: string) => {
-    const newAttendees = [...attendees];
-    newAttendees[index] = { ...newAttendees[index], [field]: value };
-    setAttendees(newAttendees);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -182,7 +163,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
       site_id: profile.site_id,
       date: new Date().toISOString().split('T')[0],
       created_by: profile.user_id,
-      attendees,
       wind_speed: windSpeed,
       gust_speed: gustSpeed,
       weather_conditions: weatherConditions,
@@ -235,38 +215,6 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
 
         <form onSubmit={handleSubmit} className="space-y-8 mt-4">
           
-          {/* Attendees */}
-          <section className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-primary">1. Attendees</h3>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddAttendee}>
-                <Plus className="h-4 w-4 mr-2" /> Add Attendee
-              </Button>
-            </div>
-            {attendees.map((att, i) => (
-              <div key={i} className="flex gap-2 items-start">
-                <div className="grid grid-cols-3 gap-2 flex-1">
-                  <div>
-                    <Label className="text-xs">Role</Label>
-                    <Input value={att.role} onChange={(e) => updateAttendee(i, 'role', e.target.value)} placeholder="e.g. Crane Operator" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Name</Label>
-                    <Input value={att.name} onChange={(e) => updateAttendee(i, 'name', e.target.value)} placeholder="John Doe" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Company</Label>
-                    <Input value={att.company} onChange={(e) => updateAttendee(i, 'company', e.target.value)} placeholder="Acme Corp" />
-                  </div>
-                </div>
-                <Button type="button" variant="ghost" size="icon" className="mt-5 text-destructive" onClick={() => handleRemoveAttendee(i)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            {attendees.length === 0 && <p className="text-sm text-muted-foreground">No attendees added yet. Add people who will be part of today's lifts.</p>}
-          </section>
-
           {/* Weather */}
           <section className="space-y-4">
             <h3 className="text-lg font-semibold text-primary">2. Weather Conditions</h3>

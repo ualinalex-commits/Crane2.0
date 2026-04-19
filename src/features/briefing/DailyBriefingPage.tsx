@@ -140,26 +140,19 @@ export function DailyBriefingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {briefing.attendees?.map((att: any, i: number) => {
-                      const sig = signatures.find(s => s.name.toLowerCase() === att.name.toLowerCase() || s.role === att.role);
-                      return (
-                        <tr key={i} className="hover:bg-muted/50 transition-colors">
-                          <td className="px-4 py-3 font-medium">{att.role}</td>
-                          <td className="px-4 py-3">{att.name}</td>
-                          <td className="px-4 py-3">{att.company}</td>
-                          <td className="px-4 py-2 text-center">
-                            {sig ? (
-                              <img src={sig.signature_image_url} alt="Signature" className="h-10 object-contain mx-auto mix-blend-multiply" />
-                            ) : (
-                              <span className="text-muted-foreground/50 italic text-xs">Pending</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {(!briefing.attendees || briefing.attendees.length === 0) && (
+                    {signatures.map((sig, i) => (
+                      <tr key={i} className="hover:bg-muted/50 transition-colors">
+                        <td className="px-4 py-3 font-medium">{sig.role}</td>
+                        <td className="px-4 py-3">{sig.name}</td>
+                        <td className="px-4 py-3">{sig.company}</td>
+                        <td className="px-4 py-2 text-center">
+                          <img src={sig.signature_image_url} alt="Signature" className="h-10 object-contain mx-auto mix-blend-multiply" />
+                        </td>
+                      </tr>
+                    ))}
+                    {signatures.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-4 py-4 text-center text-muted-foreground">No attendees listed.</td>
+                        <td colSpan={4} className="px-4 py-4 text-center text-muted-foreground">No signatures yet.</td>
                       </tr>
                     )}
                   </tbody>
@@ -282,6 +275,25 @@ export function DailyBriefingPage() {
                 </div>
               </div>
             </section>
+
+            {/* Bottom Signature Action for Operatives */}
+            {!canSetUp && !hasSigned && (
+              <div className="pt-8 flex justify-center">
+                <Button size="lg" onClick={() => setIsSignModalOpen(true)} className="gap-2 px-8">
+                  <FileSignature className="h-5 w-5" />
+                  Sign Briefing
+                </Button>
+              </div>
+            )}
+            
+            {!canSetUp && hasSigned && (
+              <div className="pt-8 flex justify-center">
+                <Button disabled variant="outline" size="lg" className="gap-2 px-8 text-green-600 border-green-200 bg-green-50">
+                  <CheckCircle2 className="h-5 w-5" />
+                  You have signed today's briefing
+                </Button>
+              </div>
+            )}
 
           </div>
         </div>
