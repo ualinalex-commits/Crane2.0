@@ -160,7 +160,11 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.site_id) return;
+    console.log('handleSubmit triggered', profile);
+    if (!profile?.site_id) {
+      alert('Error: You are not assigned to a site. Cannot save briefing.');
+      return;
+    }
     if (!supervisorSignatureUrl) {
       alert('Please provide a signature before saving.');
       return;
@@ -387,7 +391,7 @@ export function SetUpBriefingModal({ isOpen, onClose, onSuccess, existingBriefin
 
           <div className="flex justify-end gap-3 pt-6 border-t border-border">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting || !supervisorSignatureUrl}>
+            <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Briefing
             </Button>
