@@ -12,7 +12,8 @@ export type CraneStatus =
   | 'Service'
   | 'Thorough Examination'
   | 'Breaking Down'
-  | 'Winded Off';
+  | 'Winded Off'
+  | 'Idle';
 
 export type BookingStatus = 'pending' | 'approved' | 'cancelled';
 
