@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffectiveProfile } from '@/contexts/TestModeContext';
 import type { UserRole } from '@/types';
 
 interface ProtectedRouteProps {
@@ -9,7 +10,8 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
+  const profile = useEffectiveProfile();
 
   if (loading) {
     return (
