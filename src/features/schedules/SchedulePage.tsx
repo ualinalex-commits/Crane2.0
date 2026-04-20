@@ -66,6 +66,63 @@ const STATUS_COLOR: Record<BookingStatus, { bg: string; border: string; text: st
   cancelled: { bg: '#fef2f2', border: '#fca5a5', text: '#7f1d1d', left: '#ef4444', dot: '#ef4444' },
 };
 
+// ── Horizontal timeline constants (Bookings tab) ──────────────────────────────
+const GRID_ROW_H   = 64;
+const GRID_SLOT_W  = 40;                         // px per 30-min slot (horizontal)
+const CRANE_COL_W  = 128;                        // px – fixed crane name column
+const GRID_HEADER_H = 36;                        // px – time label row
+const GRID_TOTAL_W = TOTAL_SLOTS * GRID_SLOT_W;  // 1280px
+
+const HOUR_MARKS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => ({
+  hour:  HOUR_START + i,
+  left:  i * 2 * GRID_SLOT_W,
+  label: `${String(HOUR_START + i).padStart(2, '0')}:00`,
+}));
+
+function blockLeft(startTime: string): number {
+  return ((toMins(startTime) - HOUR_START * 60) / 30) * GRID_SLOT_W;
+}
+
+function blockWidth(startTime: string, endTime: string): number {
+  return Math.max(GRID_SLOT_W / 2, ((toMins(endTime) - toMins(startTime)) / 30) * GRID_SLOT_W);
+}
+
+function currentTimeLeft(): number {
+  const now = new Date();
+  return ((now.getHours() * 60 + now.getMinutes() - HOUR_START * 60) / 30) * GRID_SLOT_W;
+}
+
+function layoutHorizCrane(bks: CraneBooking[]): { b: CraneBooking; row: number; rows: number }[] {
+  const sorted = [...bks].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const result: { b: CraneBooking; row: number; rows: number }[] = [];
+  const subRows: CraneBooking[][] = [];
+
+  for (const b of sorted) {
+    let placed = false;
+    for (let r = 0; r < subRows.length; r++) {
+      if (!subRows[r].some(o => b.start_time < o.end_time && b.end_time > o.start_time)) {
+        subRows[r].push(b);
+        result.push({ b, row: r, rows: 0 });
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      subRows.push([b]);
+      result.push({ b, row: subRows.length - 1, rows: 0 });
+    }
+  }
+
+  for (const item of result) {
+    const overlapping = result.filter(
+      o => item.b.start_time < o.b.end_time && item.b.end_time > o.b.start_time
+    );
+    item.rows = overlapping.length > 0 ? Math.max(...overlapping.map(o => o.row)) + 1 : 1;
+  }
+
+  return result;
+}
+
 // ── Overlap layout ────────────────────────────────────────────────────────────
 type LayoutItem = { b: CraneBooking; col: number; cols: number };
 
@@ -108,7 +165,7 @@ export function SchedulePage() {
   const [bookings, setBookings] = useState<CraneBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [activeTab, setActiveTab] = useState<'approved' | 'pending'>('approved');
+  const [activeTab, setActiveTab] = useState<'approved' | 'pending' | 'bookings'>('approved');
 
   // New booking form state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,7 +183,8 @@ export function SchedulePage() {
   const [overlayBooking, setOverlayBooking] = useState<CraneBooking | null>(null);
 
   // Current time line
-  const [timeTop, setTimeTop] = useState(currentTimeTop());
+  const [timeTop,  setTimeTop]  = useState(currentTimeTop());
+  const [timeLeft, setTimeLeft] = useState(currentTimeLeft());
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollH, setScrollH] = useState(500);
@@ -172,7 +230,10 @@ export function SchedulePage() {
   }, [loading]);
 
   useEffect(() => {
-    const id = setInterval(() => setTimeTop(currentTimeTop()), 60_000);
+    const id = setInterval(() => {
+      setTimeTop(currentTimeTop());
+      setTimeLeft(currentTimeLeft());
+    }, 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -198,6 +259,14 @@ export function SchedulePage() {
     bookings.filter(b => b.status === 'pending'),
     [bookings]
   );
+
+  const allDayBookings = useMemo(() => {
+    const dayStr = format(selectedDate, 'yyyy-MM-dd');
+    return bookings.filter(b =>
+      b.status !== 'cancelled' &&
+      b.job_date_start <= dayStr && b.job_date_end >= dayStr
+    );
+  }, [bookings, selectedDate]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const checkOverlaps = (craneId: string, dStart: string, dEnd: string, tS: string, tE: string) => {
@@ -331,6 +400,17 @@ export function SchedulePage() {
                 {pendingBookings.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('bookings')}
+            className={cn(
+              'px-4 py-1.5 text-sm font-semibold transition-colors border-l border-border',
+              activeTab === 'bookings'
+                ? 'bg-orange-500 text-white'
+                : 'bg-background text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Bookings
           </button>
         </div>
 
@@ -574,6 +654,254 @@ export function SchedulePage() {
             ))
           )}
         </div>
+      )}
+
+      {/* ── Bookings tab: restaurant-style horizontal timeline ───────────────── */}
+      {activeTab === 'bookings' && (
+        <>
+          {/* Date navigation */}
+          <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border bg-background">
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 w-8 p-0 shrink-0"
+              onClick={() => setSelectedDate(d => addDays(d, -1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            <div className="flex-1 text-center min-w-0">
+              <p className={cn('text-sm font-semibold truncate', isToday && 'text-primary')}>
+                {format(selectedDate, 'EEEE, d MMMM yyyy')}
+              </p>
+            </div>
+
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 w-8 p-0 shrink-0"
+              onClick={() => setSelectedDate(d => addDays(d, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+
+            {!isToday && (
+              <Button
+                variant="outline" size="sm"
+                className="h-7 text-xs px-2.5 shrink-0"
+                onClick={() => setSelectedDate(new Date())}
+              >
+                Today
+              </Button>
+            )}
+          </div>
+
+          {/* Horizontal timeline grid */}
+          <div className="overflow-auto" style={{ height: scrollH }}>
+            <div style={{ minWidth: CRANE_COL_W + GRID_TOTAL_W }}>
+
+              {/* ── Sticky time-header row ───────────────────────────────────── */}
+              <div
+                className="sticky top-0 z-20 flex bg-white border-b border-[#E5E7EB]"
+                style={{ height: GRID_HEADER_H, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+              >
+                {/* Corner cell – sticky left AND top */}
+                <div
+                  className="sticky left-0 z-30 shrink-0 flex items-center px-3 border-r border-[#E5E7EB] bg-white"
+                  style={{ width: CRANE_COL_W }}
+                >
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Crane
+                  </span>
+                </div>
+
+                {/* Hour labels strip */}
+                <div className="relative overflow-hidden" style={{ width: GRID_TOTAL_W }}>
+                  {HOUR_MARKS.map(({ hour, left, label }) => (
+                    <div
+                      key={hour}
+                      className="absolute top-0 bottom-0 flex items-end pb-1.5"
+                      style={{ left }}
+                    >
+                      <span className="text-[10px] text-muted-foreground tabular-nums select-none pl-1">
+                        {label}
+                      </span>
+                    </div>
+                  ))}
+                  {/* Vertical lines inside header */}
+                  {HOUR_MARKS.slice(1).map(({ hour, left }) => (
+                    <div
+                      key={`hdr-vline-${hour}`}
+                      className="absolute top-0 bottom-0 pointer-events-none"
+                      style={{ left, borderLeft: '1px solid #E5E7EB' }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Crane rows ───────────────────────────────────────────────── */}
+              {cranes.map((crane, craneIdx) => {
+                const craneBks = allDayBookings.filter(b => b.crane_id === crane.id);
+                const laid = layoutHorizCrane(craneBks);
+                const maxSubRows = laid.length > 0 ? Math.max(...laid.map(i => i.rows)) : 1;
+                const rowH = Math.max(GRID_ROW_H, maxSubRows * 44 + 12);
+                const isEven = craneIdx % 2 === 0;
+
+                return (
+                  <div
+                    key={crane.id}
+                    className="flex border-b border-[#E5E7EB]"
+                    style={{ height: rowH }}
+                  >
+                    {/* Crane name cell – sticky left */}
+                    <div
+                      className="sticky left-0 z-10 shrink-0 flex items-center px-3 border-r border-[#E5E7EB]"
+                      style={{ width: CRANE_COL_W, backgroundColor: 'white' }}
+                    >
+                      <div className="min-w-0 w-full">
+                        <p className="text-xs font-semibold text-foreground leading-tight truncate">
+                          {crane.name}
+                        </p>
+                        {crane.model && (
+                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                            {crane.model}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Booking area */}
+                    <div
+                      className="relative"
+                      style={{
+                        width: GRID_TOTAL_W,
+                        backgroundColor: isEven ? 'white' : '#FAFAF8',
+                      }}
+                    >
+                      {/* Hour vertical grid lines */}
+                      {HOUR_MARKS.slice(1).map(({ hour, left }) => (
+                        <div
+                          key={`vl-${hour}`}
+                          className="absolute top-0 bottom-0 pointer-events-none"
+                          style={{ left, borderLeft: '0.5px solid #E5E7EB' }}
+                        />
+                      ))}
+
+                      {/* Half-hour lines (lighter) */}
+                      {HOUR_MARKS.slice(0, -1).map(({ hour, left }) => (
+                        <div
+                          key={`hl-${hour}`}
+                          className="absolute top-0 bottom-0 pointer-events-none"
+                          style={{ left: left + GRID_SLOT_W, borderLeft: '0.5px solid #F3F4F6' }}
+                        />
+                      ))}
+
+                      {/* Current time vertical line – orange */}
+                      {isToday && timeLeft >= 0 && timeLeft <= GRID_TOTAL_W && (
+                        <div
+                          className="absolute top-0 bottom-0 pointer-events-none z-10"
+                          style={{ left: timeLeft, borderLeft: '2px solid #F97316' }}
+                        />
+                      )}
+
+                      {/* Booking blocks */}
+                      {laid.map(({ b, row, rows: totalRows }) => {
+                        const bLeft   = blockLeft(b.start_time);
+                        const bWidth  = blockWidth(b.start_time, b.end_time);
+                        const bH      = (rowH - 12) / totalRows;
+                        const bTop    = row * bH + 6;
+                        const bHeight = bH - 4;
+                        const isPending = b.status === 'pending';
+                        const textCol   = isPending ? '#92400E' : '#065F46';
+
+                        return (
+                          <div
+                            key={b.id}
+                            className="absolute cursor-pointer transition-shadow duration-150"
+                            style={{
+                              left:            bLeft + 2,
+                              width:           Math.max(20, bWidth - 4),
+                              top:             bTop,
+                              height:          bHeight,
+                              backgroundColor: isPending ? '#FEF3C7' : '#D1FAE5',
+                              border:          isPending ? '1.5px dashed #FCD34D' : '1.5px solid #6EE7B7',
+                              borderRadius:    8,
+                              boxShadow:       '0 1px 3px rgba(0,0,0,0.08)',
+                              opacity:         isPending ? 0.88 : 1,
+                              zIndex:          5,
+                            }}
+                            onClick={e => { e.stopPropagation(); setOverlayBooking(b); }}
+                            onMouseEnter={e => {
+                              (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                              (e.currentTarget as HTMLElement).style.zIndex = '20';
+                            }}
+                            onMouseLeave={e => {
+                              (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
+                              (e.currentTarget as HTMLElement).style.zIndex = '5';
+                            }}
+                          >
+                            <div className="h-full px-1.5 py-1 flex flex-col overflow-hidden gap-0.5 pr-4">
+                              {/* Pending label */}
+                              {isPending && (
+                                <span
+                                  className="text-[8px] font-bold uppercase tracking-wide leading-none"
+                                  style={{ color: '#92400E' }}
+                                >
+                                  Pending
+                                </span>
+                              )}
+                              {/* Subcontractor / creator name */}
+                              <span
+                                className="text-[10px] font-semibold truncate leading-tight"
+                                style={{ color: textCol }}
+                              >
+                                {(b.subcontractor as any)?.company_name
+                                  || (b.creator as any)?.full_name
+                                  || '—'}
+                              </span>
+                              {/* Job details (only when block is wide enough) */}
+                              {bWidth > 80 && (
+                                <span
+                                  className="text-[9px] truncate leading-tight"
+                                  style={{ color: textCol, opacity: 0.7 }}
+                                >
+                                  {b.job_details}
+                                </span>
+                              )}
+                              {/* Time range */}
+                              {bWidth > 55 && (
+                                <span
+                                  className="text-[9px] tabular-nums leading-none"
+                                  style={{ color: textCol, opacity: 0.6 }}
+                                >
+                                  {b.start_time.slice(0, 5)}–{b.end_time.slice(0, 5)}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Pending clock icon */}
+                            {isPending && (
+                              <div className="absolute top-1 right-1">
+                                <Clock className="h-2.5 w-2.5" style={{ color: '#92400E', opacity: 0.7 }} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Empty state */}
+              {cranes.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-3 py-20 text-center px-6">
+                  <Construction className="h-12 w-12 text-muted-foreground/30" />
+                  <p className="text-sm font-medium text-muted-foreground">No cranes on this site</p>
+                  <p className="text-xs text-muted-foreground/70">Ask your appointed person to add cranes.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── New Booking Dialog ───────────────────────────────────────────────── */}
