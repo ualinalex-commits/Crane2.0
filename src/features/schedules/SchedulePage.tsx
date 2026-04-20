@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffectiveProfile } from '@/contexts/TestModeContext';
 import type { Crane, CraneBooking, Subcontractor, BookingStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -159,7 +160,8 @@ function layoutBookings(bks: CraneBooking[]): LayoutItem[] {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function SchedulePage() {
-  const { profile } = useAuth();
+  const { profile: authProfile } = useAuth();
+  const profile = useEffectiveProfile();
   const [cranes, setCranes] = useState<Crane[]>([]);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [bookings, setBookings] = useState<CraneBooking[]>([]);
@@ -305,7 +307,7 @@ export function SchedulePage() {
       job_details: formJob, job_date_start: formDateStart, job_date_end: dEnd,
       start_time: formTimeStart, end_time: formTimeEnd, subcontractor_id: subId,
       status: isAP ? 'approved' : 'pending',
-      approved_by: isAP ? profile.user_id : null,
+      approved_by: isAP ? authProfile?.user_id ?? profile.user_id : null,
     });
 
     if (err) { setFormError(err.message); setSubmitting(false); return; }
