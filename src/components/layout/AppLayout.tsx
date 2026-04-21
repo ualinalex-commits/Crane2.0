@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { CraneMastBackground } from './CraneMastBackground';
+import { JibHeader } from './JibHeader';
+import { JibHeader } from './JibHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTestMode, useEffectiveProfile } from '@/contexts/TestModeContext';
 import {
@@ -201,12 +203,18 @@ export function AppLayout() {
         </div>
       )}
 
-      <div className="min-h-screen bg-background flex" style={{ paddingTop: bannerOffset }}>
+      <div className="min-h-screen bg-background flex flex-col" style={{ paddingTop: bannerOffset }}>
 
+        {/* Jib sits above everything — desktop only */}
+        <div className="hidden lg:block">
+          <JibHeader />
+        </div>
+
+        <div className="flex flex-1 min-h-0">
         {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
         <aside
           className="hidden lg:flex fixed left-0 bottom-0 z-40 w-60 flex-col bg-card border-r border-border"
-          style={{ top: bannerOffset }}
+          style={{ top: bannerOffset + 56 }}
         >
 
           {/* Logo */}
@@ -289,7 +297,7 @@ export function AppLayout() {
           {/* ── Mobile top header ──────────────────────────────────────── */}
           <header
             className="lg:hidden fixed left-0 right-0 z-50 h-14 bg-card shadow-[0_2px_8px_rgba(0,0,0,0.06)] flex items-center px-4 gap-3"
-            style={{ top: bannerOffset }}
+            style={{ top: bannerOffset + 56 }}
           >
             {/* Logo mark */}
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-md shadow-primary/30">
@@ -340,7 +348,7 @@ export function AppLayout() {
           {/* ── Desktop page header ─────────────────────────────────────── */}
           <header
             className="hidden lg:flex h-16 items-center px-6 gap-4 border-b border-border bg-card sticky z-30"
-            style={{ top: bannerOffset }}
+            style={{ top: bannerOffset + 56 }}
           >
             <div className="flex-1">
               <p className="text-xs text-muted-foreground">{today}</p>
@@ -370,6 +378,8 @@ export function AppLayout() {
           )}>
             <Outlet />
           </main>
+        </div>
+
         </div>
 
         {/* ── Mobile bottom nav ───────────────────────────────────────────── */}
