@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import { CraneMastBackground } from './CraneMastBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTestMode, useEffectiveProfile } from '@/contexts/TestModeContext';
 import {
@@ -177,6 +178,9 @@ export function AppLayout() {
 
     <div className="min-h-screen bg-background">
 
+      {/* ── Animated crane mast background ──────────────────────────────── */}
+      <CraneMastBackground />
+
       {/* ── Orange testing banner ────────────────────────────────────────── */}
       {bannerActive && (
         <div
@@ -201,7 +205,7 @@ export function AppLayout() {
 
         {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
         <aside
-          className="hidden lg:flex fixed left-0 bottom-0 z-40 w-60 flex-col bg-card shadow-[2px_0_12px_rgba(0,0,0,0.06)]"
+          className="hidden lg:flex fixed left-0 bottom-0 z-40 w-60 flex-col bg-card border-r border-border"
           style={{ top: bannerOffset }}
         >
 
@@ -280,7 +284,7 @@ export function AppLayout() {
         </aside>
 
         {/* ── Main content area ───────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 lg:pl-60">
+        <div className="flex-1 flex flex-col min-w-0 lg:pl-60 relative z-[1]">
 
           {/* ── Mobile top header ──────────────────────────────────────── */}
           <header

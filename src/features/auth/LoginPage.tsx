@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Construction as CraneIcon, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { CraneMastBackground } from '@/components/layout/CraneMastBackground';
 
 export function LoginPage() {
   const { user, signIn, loading } = useAuth();
@@ -37,13 +38,14 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-5">
-      {/* Warm blob decorations */}
+      <CraneMastBackground />
+      {/* Soft orange glows */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary/8 blur-3xl" />
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-primary/6 blur-3xl" />
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary/6 blur-3xl" />
+        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-primary/4 blur-3xl" />
       </div>
 
-      <div className="w-full max-w-sm relative z-10 animate-slide-up">
+      <div className="w-full max-w-sm relative z-[2] animate-slide-up">
         {/* Logo block */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center shadow-xl shadow-primary/30 mb-4">

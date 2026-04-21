@@ -2,8 +2,8 @@
 
 @theme {
   /* ── Core backgrounds ───────────────────────────────────────────────── */
-  --color-background: oklch(0.96 0.012 70);       /* warm off-white  #F5F0EB */
-  --color-foreground: oklch(0.22 0.06 255);       /* dark navy       #1E2D4E */
+  --color-background: oklch(1 0 0);               /* pure white      #FFFFFF */
+  --color-foreground: oklch(0.14 0.02 264);       /* dark navy       #111827 */
 
   /* ── Card / popover ─────────────────────────────────────────────────── */
   --color-card: oklch(1 0 0);                     /* white */
@@ -16,12 +16,12 @@
   --color-primary-foreground: oklch(1 0 0);       /* white text on orange */
 
   /* ── Secondary / muted / accent ─────────────────────────────────────── */
-  --color-secondary: oklch(0.94 0.01 70);         /* warm light grey */
-  --color-secondary-foreground: oklch(0.22 0.06 255);
-  --color-muted: oklch(0.94 0.01 70);
-  --color-muted-foreground: oklch(0.55 0.01 264); /* #6B7280 */
-  --color-accent: oklch(0.94 0.01 70);
-  --color-accent-foreground: oklch(0.22 0.06 255);
+  --color-secondary: oklch(0.97 0.002 264);       /* neutral light grey */
+  --color-secondary-foreground: oklch(0.14 0.02 264);
+  --color-muted: oklch(0.97 0.002 264);
+  --color-muted-foreground: oklch(0.52 0.014 264);/* #6B7280 */
+  --color-accent: oklch(0.97 0.002 264);
+  --color-accent-foreground: oklch(0.14 0.02 264);
 
   /* ── Semantic colours ───────────────────────────────────────────────── */
   --color-destructive: oklch(0.55 0.22 27);       /* red   */
@@ -32,7 +32,7 @@
   --color-warning-foreground: oklch(1 0 0);
 
   /* ── Borders / inputs ───────────────────────────────────────────────── */
-  --color-border: oklch(0.90 0.012 65);           /* warm border */
+  --color-border: oklch(0.96 0.003 264);          /* subtle neutral #F3F4F6 */
   --color-input: oklch(1 0 0);                    /* white */
   --color-ring: oklch(0.72 0.21 50);              /* orange focus ring */
 
@@ -95,9 +95,13 @@
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes craneMastScroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-500px); }
+}
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: oklch(0.85 0.01 65); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(0.75 0.01 65); }
+::-webkit-scrollbar-thumb { background: oklch(0.88 0.002 264); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: oklch(0.78 0.005 264); }
