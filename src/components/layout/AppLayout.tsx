@@ -2,7 +2,6 @@ import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { CraneMastBackground } from './CraneMastBackground';
 import { JibHeader } from './JibHeader';
-import { JibHeader } from './JibHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTestMode, useEffectiveProfile } from '@/contexts/TestModeContext';
 import {
