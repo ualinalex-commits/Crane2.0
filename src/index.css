@@ -1,50 +1,73 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────
+   Crane 2.0 — Direction A · "Site Office"
+   Drop-in replacement for src/index.css.
+   Warm paper whites, charcoal ink, pulled-back signal orange used
+   surgically. Inter for UI · IBM Plex Mono for data/serials.
+   ───────────────────────────────────────────────────────────────────── */
+
 @theme {
-  /* ── Core backgrounds ───────────────────────────────────────────────── */
-  --color-background: oklch(1 0 0);               /* pure white      #FFFFFF */
-  --color-foreground: oklch(0.14 0.02 264);       /* dark navy       #111827 */
+  /* ── Surfaces ─────────────────────────────────────────────────────── */
+  --color-background:       oklch(0.981 0.006 70);    /* #FBFAF7 warm paper */
+  --color-foreground:       oklch(0.162 0.009 60);    /* #17130E ink */
 
-  /* ── Card / popover ─────────────────────────────────────────────────── */
-  --color-card: oklch(1 0 0);                     /* white */
-  --color-card-foreground: oklch(0.22 0.06 255);
-  --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.22 0.06 255);
+  --color-card:             oklch(1 0 0);             /* #FFFFFF */
+  --color-card-foreground:  oklch(0.162 0.009 60);
+  --color-popover:          oklch(1 0 0);
+  --color-popover-foreground: oklch(0.162 0.009 60);
 
-  /* ── Primary = orange ───────────────────────────────────────────────── */
-  --color-primary: oklch(0.72 0.21 50);           /* #F97316 */
-  --color-primary-foreground: oklch(1 0 0);       /* white text on orange */
+  /* ── Primary — signal orange, pulled back one notch ──────────────── */
+  --color-primary:              oklch(0.67 0.178 42);  /* #E85D1F */
+  --color-primary-foreground:   oklch(1 0 0);
 
-  /* ── Secondary / muted / accent ─────────────────────────────────────── */
-  --color-secondary: oklch(0.97 0.002 264);       /* neutral light grey */
-  --color-secondary-foreground: oklch(0.14 0.02 264);
-  --color-muted: oklch(0.97 0.002 264);
-  --color-muted-foreground: oklch(0.52 0.014 264);/* #6B7280 */
-  --color-accent: oklch(0.97 0.002 264);
-  --color-accent-foreground: oklch(0.14 0.02 264);
+  /* ── Muted / accent / secondary ──────────────────────────────────── */
+  --color-secondary:            oklch(0.955 0.006 70); /* #F1EDE5 */
+  --color-secondary-foreground: oklch(0.26 0.01 60);   /* #3A332A */
+  --color-muted:                oklch(0.955 0.006 70);
+  --color-muted-foreground:     oklch(0.49 0.012 65);  /* #6E665A */
+  --color-accent:               oklch(0.955 0.006 70);
+  --color-accent-foreground:    oklch(0.26 0.01 60);
 
-  /* ── Semantic colours ───────────────────────────────────────────────── */
-  --color-destructive: oklch(0.55 0.22 27);       /* red   */
-  --color-destructive-foreground: oklch(1 0 0);
-  --color-success: oklch(0.58 0.18 145);          /* green */
-  --color-success-foreground: oklch(1 0 0);
-  --color-warning: oklch(0.68 0.17 70);           /* amber */
-  --color-warning-foreground: oklch(1 0 0);
+  /* ── Semantic status colours (muted, paper-friendly) ─────────────── */
+  --color-destructive:              oklch(0.49 0.155 30);  /* #B0321B */
+  --color-destructive-foreground:   oklch(1 0 0);
+  --color-success:                  oklch(0.52 0.115 150); /* #2F7D4A */
+  --color-success-foreground:       oklch(1 0 0);
+  --color-warning:                  oklch(0.59 0.115 80);  /* #B57315 */
+  --color-warning-foreground:       oklch(1 0 0);
+  --color-info:                     oklch(0.48 0.09 255);  /* #2C5C8A */
+  --color-info-foreground:          oklch(1 0 0);
+  --color-special:                  oklch(0.49 0.12 310);  /* #66448A (T.Exam) */
+  --color-special-foreground:       oklch(1 0 0);
 
-  /* ── Borders / inputs ───────────────────────────────────────────────── */
-  --color-border: oklch(0.96 0.003 264);          /* subtle neutral #F3F4F6 */
-  --color-input: oklch(1 0 0);                    /* white */
-  --color-ring: oklch(0.72 0.21 50);              /* orange focus ring */
+  /* ── Status background tints (for badges / card fills) ───────────── */
+  --color-success-subtle:     oklch(0.95 0.025 150); /* #E8F2EB */
+  --color-info-subtle:        oklch(0.94 0.02 255);  /* #E4ECF4 */
+  --color-warning-subtle:     oklch(0.95 0.035 80);  /* #FBEFD8 */
+  --color-destructive-subtle: oklch(0.93 0.024 30);  /* #F8E3DE */
+  --color-special-subtle:     oklch(0.94 0.025 310); /* #EDE5F3 */
+  --color-primary-subtle:     oklch(0.96 0.022 55);  /* #FFF1E8 */
 
-  /* ── Sidebar ────────────────────────────────────────────────────────── */
-  --color-sidebar: oklch(1 0 0);
-  --color-sidebar-foreground: oklch(0.22 0.06 255);
+  /* ── Borders / inputs ────────────────────────────────────────────── */
+  --color-border:             oklch(0.92 0.008 60);  /* #E8E4DC hairline */
+  --color-border-soft:        oklch(0.955 0.006 70); /* #F1EDE5 */
+  --color-input:              oklch(1 0 0);
+  --color-ring:               oklch(0.67 0.178 42);  /* orange focus ring */
 
-  /* ── Border radius ──────────────────────────────────────────────────── */
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
+  /* ── Sidebar ─────────────────────────────────────────────────────── */
+  --color-sidebar:             oklch(0.981 0.006 70); /* #FBFAF7 */
+  --color-sidebar-foreground:  oklch(0.26 0.01 60);
+
+  /* ── Border radius — tighter than current ────────────────────────── */
+  --radius-sm:  0.25rem;   /* 4px  — chips, small controls */
+  --radius-md:  0.375rem;  /* 6px  — buttons, inputs, cards */
+  --radius-lg:  0.5rem;    /* 8px  — dialogs */
+  --radius-xl:  0.75rem;   /* 12px — hero blocks */
+
+  /* ── Type ────────────────────────────────────────────────────────── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @layer base {
@@ -58,50 +81,58 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     margin: 0;
     height: 100%;
     overflow: auto;
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
+    font-feature-settings: "cv11", "ss01";  /* subtly better Inter */
   }
-  #root {
-    min-height: 100%;
+  #root { min-height: 100%; }
+
+  /* Tabular numerals everywhere we show data */
+  .tabular, code, kbd, samp, pre {
+    font-variant-numeric: tabular-nums;
+  }
+  code, kbd, samp, pre { font-family: var(--font-mono); }
+
+  /* Eyebrow / kicker — used as category labels above page titles */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;       /* 10px */
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--color-primary);
   }
 }
 
 @layer utilities {
-  .animate-fade-in {
-    animation: fadeIn 0.3s ease-out;
-  }
-  .animate-slide-up {
-    animation: slideUp 0.3s ease-out;
-  }
-  .animate-slide-down {
-    animation: slideDown 0.2s ease-out;
-  }
+  .animate-fade-in  { animation: fadeIn  0.3s ease-out; }
+  .animate-slide-up { animation: slideUp 0.3s ease-out; }
+  .animate-slide-down { animation: slideDown 0.2s ease-out; }
+
+  /* Jib header animations — consumed by <JibHeader /> */
+  .animate-jib-trolley { animation: jibTrolley 14s linear infinite; }
+  .animate-jib-hook    { animation: jibHookSway 3.2s ease-in-out infinite; transform-origin: top center; }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes fadeIn     { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp    { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideDown  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Trolley travels from 0 to --jib-travel (set inline per-container) */
+@keyframes jibTrolley { 0% { transform: translateX(0); } 100% { transform: translateX(var(--jib-travel, 100%)); } }
+@keyframes jibHookSway { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+
 @keyframes craneMastScroll {
   from { transform: translateY(0); }
   to   { transform: translateY(-500px); }
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: oklch(0.88 0.002 264); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(0.78 0.005 264); }
+::-webkit-scrollbar-thumb { background: oklch(0.85 0.008 60); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: oklch(0.7 0.012 60); }
